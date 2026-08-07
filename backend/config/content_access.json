@@ -1,0 +1,81 @@
+{
+  "free_content": {
+    "simulacros": [
+      {
+        "id": "diagnostico",
+        "name": "Simulacro Diagnóstico",
+        "description": "Evalúa tu nivel inicial",
+        "order": 1
+      },
+      {
+        "id": "simulacro_1",
+        "name": "Simulacro 1",
+        "description": "Nivel básico",
+        "order": 2,
+        "requires": ["diagnostico"]
+      }
+    ],
+    "courses": [
+      {
+        "id": "curso_basico_matematicas",
+        "name": "Matemáticas Básicas",
+        "description": "Fundamentos matemáticos"
+      },
+      {
+        "id": "curso_basico_lenguaje",
+        "name": "Lenguaje y Comunicación",
+        "description": "Comprensión lectora básica"
+      },
+      {
+        "id": "curso_basico_ciencias",
+        "name": "Ciencias Naturales",
+        "description": "Conceptos científicos esenciales"
+      }
+    ],
+    "features": [
+      "estadisticas_basicas",
+      "progreso_general",
+      "comunidad_basica"
+    ]
+  },
+  "premium_content": {
+    "simulacros": [
+      "simulacro_2",
+      "simulacro_3",
+      "simulacro_4",
+      "simulacro_5",
+      "simulacro_6",
+      "simulacro_7",
+      "simulacro_8",
+      "simulacro_9",
+      "simulacro_10",
+      "simulacro_especial_icfes"
+    ],
+    "courses": [
+      "curso_avanzado_matematicas",
+      "curso_avanzado_lenguaje",
+      "curso_ciencias_sociales",
+      "curso_ingles_icfes",
+      "curso_fisica_avanzada",
+      "curso_quimica_avanzada",
+      "curso_biologia_avanzada",
+      "curso_filosofia",
+      "curso_competencias_ciudadanas"
+    ],
+    "features": [
+      "estadisticas_avanzadas",
+      "certificados_descargables",
+      "contenido_exclusivo",
+      "soporte_prioritario",
+      "descargas_offline",
+      "planificador_estudio",
+      "simulacros_ilimitados",
+      "seguimiento_detallado"
+    ]
+  },
+  "early_bird_content": {
+    "access": "full",
+    "duration_days": 180,
+    "message": "Eres usuario early bird - Acceso completo temporal"
+  }
+}

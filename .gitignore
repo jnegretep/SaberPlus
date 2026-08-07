@@ -49,3 +49,10 @@ app.*.map.json
 .env.production
 .env.staging
 *.env.local
+
+backend/saberplus-1ec41-firebase-adminsdk-fbsvc-23a4103b63.json
+backend/reports/*.pdf
+backend/cache/images/*
+backend/uploads/avatars/*
+backend/uploads/avatar_*
+backend/vendor
