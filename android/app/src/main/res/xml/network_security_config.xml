@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Permite cleartext solo para dominios de desarrollo -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">172.93.49.94</domain>
+        <!-- agrega aquí otros dominios de prueba si los necesitas -->
+    </domain-config>
+
+    <!-- Bloque por defecto: no permitir cleartext globalmente -->
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

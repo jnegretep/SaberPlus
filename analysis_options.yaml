@@ -1,0 +1,75 @@
+# ── Saber+ Analysis Options ──
+# Linting estricto para código profesional
+include: package:flutter_lints_plus/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+
+  errors:
+    # Tratar这些问题 como errores (no warnings)
+    missing_required_param: error
+    missing_enum_constant_in_switch: error
+    invalid_annotation_target: ignore
+
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - "lib/generated/**"
+    - "test/.test_coverage.dart"
+
+linter:
+  rules:
+    # ── Estilo & Consistencia ──
+    prefer_single_quotes: true
+    prefer_const_constructors: true
+    prefer_const_constructors_in_immutables: true
+    prefer_const_declarations: true
+    prefer_final_fields: true
+    prefer_final_locals: true
+    prefer_final_in_for_each: true
+    require_trailing_commas: true
+    sort_constructors_first: true
+    sort_unnamed_constructors_first: true
+    always_declare_return_types: true
+    always_put_required_named_parameters_first: true
+    annotate_overrides: true
+    unnecessary_overrides: true
+    avoid_renaming_method_parameters: true
+    library_private_types_in_public_api: true
+
+    # ── Seguridad & Correctitud ──
+    avoid_print: true
+    avoid_empty_else: true
+    avoid_returning_null_for_future: true
+    avoid_slow_async_io: true
+    avoid_types_as_parameter_names: true
+    cancel_subscriptions: true
+    close_sinks: true
+    empty_catches: true
+    no_adjacent_strings_in_list: true
+    throw_in_main: true
+    unnecessary_null_checks: true
+    valid_regexps: true
+    test_types_in_equals: true
+
+    # ── Diseño & Arquitectura ──
+    avoid_classes_with_only_static_members: false
+    avoid_global_state: true
+    prefer_mixin: true
+    public_member_api_docs: false  # activar cuando haya más estabilidad
+    lines_longer_than_80_chars: false  # Flutter tiende a líneas largas
+
+    # ── Performance ──
+    avoid_function_literals_in_foreach_calls: true
+    avoid_redundant_argument_values: true
+    prefer_is_empty: true
+    prefer_is_not_empty: true
+    prefer_is_not_operator: true
+    prefer_null_aware_operators: true
+    prefer_spread_collections: true
+    prefer_if_null_operators: true
+    prefer_interpolation_to_compose_strings: true
+    prefer_typing_uninitialized_variables: true
