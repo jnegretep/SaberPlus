@@ -12,10 +12,8 @@ class HorizontalPreviewList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ FIX #2: Aumentada altura de 150 → 164 para acomodar la nueva card de 152px
-    // más margen vertical para sombras
     return SizedBox(
-      height: 164,
+      height: 150,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: itemCount,

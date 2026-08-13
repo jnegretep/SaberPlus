@@ -1,9 +1,6 @@
 // lib/services/auth_service.dart
-// Servicio de autenticación — v1.5.1
-// Cambios vs v1.5.0:
-//   - ✅ FIX #4: Agregado loginWithGoogle() para Google Sign-In
-//   - ✅ FIX #5: Agregado soporte para login biométrico (habilitar/deshabilitar/login)
-//   - URLs desde Env, AppLogger, constantes centralizadas
+// Servicio de autenticación — v1.5.0
+// Cambios: URLs desde Env, AppLogger, constantes centralizadas
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -13,7 +10,6 @@ import 'package:http/http.dart' as http;
 import '../config/env.dart';
 import '../core/utils/app_logger.dart';
 import '../core/constants/app_constants.dart';
-import 'google_auth_service.dart';
 
 class AuthService extends ChangeNotifier {
   static const _storage = FlutterSecureStorage();
@@ -166,11 +162,6 @@ class AuthService extends ChangeNotifier {
     await _storage.delete(key: AppConstants.keyJwt);
     await _storage.delete(key: AppConstants.keyRefreshToken);
     await _storage.delete(key: AppConstants.keyUser);
-
-    // ✅ FIX #5: Al cerrar sesión, también deshabilitamos la biometría
-    // (forzamos al usuario a re-loguearse con credenciales la próxima vez).
-    await _storage.delete(key: AppConstants.keyBiometricEnabled);
-    await _storage.delete(key: AppConstants.keyBiometricEmail);
 
     notifyListeners();
   }
@@ -339,139 +330,5 @@ class AuthService extends ChangeNotifier {
         'tipo: $tipoUsuario, id: $idUsuario, moodleId: $moodleId');
 
     notifyListeners();
-  }
-
-  // ────────────────────────────────────────────
-  // GOOGLE SIGN-IN (FIX #4)
-  // ────────────────────────────────────────────
-
-  /// Inicia el flujo de Google Sign-In y, si el usuario ya existe,
-  /// completa el login en el [AuthService].
-  ///
-  /// Retorna un [GoogleAuthResult] que permite al llamador decidir
-  /// qué hacer (ir al dashboard o al step2 si es usuario nuevo).
-  Future<GoogleAuthResult> loginWithGoogle() async {
-    final result = await GoogleAuthService.signInWithGoogle();
-
-    if (!result.success) return result;
-
-    if (result.isNewUser) {
-      // Usuario nuevo — el frontend debe llevarlo a completar el registro
-      // Hacemos signOut en Google para no dejar la sesión colgada
-      await GoogleAuthService.signOut();
-      AppLogger.i('loginWithGoogle: usuario nuevo, redirigir a step2');
-      return result;
-    }
-
-    // Usuario existente — aplicar el JWT recibido
-    token = result.jwtToken;
-    refreshToken = result.refreshToken;
-
-    if (result.user != null) {
-      user = result.user;
-      _mapUserFields(user!);
-      await _storage.write(
-          key: AppConstants.keyUser, value: jsonEncode(user));
-    } else {
-      // Si el backend no devolvió user, fetch profile
-      await fetchProfile();
-    }
-
-    AppLogger.i('loginWithGoogle: login exitoso para ${result.email}');
-    notifyListeners();
-    return result;
-  }
-
-  // ────────────────────────────────────────────
-  // BIOMETRIC LOGIN (FIX #5)
-  // ────────────────────────────────────────────
-
-  /// Verifica si el login biométrico está habilitado para algún usuario
-  /// en este dispositivo. No muestra UI.
-  Future<bool> isBiometricEnabled() async {
-    final flag = await _storage.read(key: AppConstants.keyBiometricEnabled);
-    final hasRefresh = await _storage.read(key: AppConstants.keyRefreshToken);
-    return flag == 'true' && hasRefresh != null && hasRefresh.isNotEmpty;
-  }
-
-  /// Devuelve el email asociado al login biométrico (para mostrar en UI).
-  Future<String?> getBiometricEmail() async {
-    return await _storage.read(key: AppConstants.keyBiometricEmail);
-  }
-
-  /// Habilita el login biométrico para el usuario actualmente autenticado.
-  /// A partir de este momento, [loginWithBiometric] podrá usarse para
-  /// iniciar sesión sin pedir email/contraseña.
-  ///
-  /// Requiere que el usuario tenga un refresh token válido almacenado.
-  Future<bool> enableBiometricLogin() async {
-    if (refreshToken == null || refreshToken!.isEmpty) {
-      AppLogger.w('enableBiometricLogin: no hay refresh token disponible');
-      return false;
-    }
-
-    final email = this.user?['email'] as String? ?? '';
-    if (email.isEmpty) {
-      AppLogger.w('enableBiometricLogin: no se pudo determinar el email');
-      return false;
-    }
-
-    await _storage.write(key: AppConstants.keyBiometricEnabled, value: 'true');
-    await _storage.write(key: AppConstants.keyBiometricEmail, value: email);
-
-    AppLogger.i('enableBiometricLogin: biometría habilitada para $email');
-    return true;
-  }
-
-  /// Deshabilita el login biométrico.
-  Future<void> disableBiometricLogin() async {
-    await _storage.delete(key: AppConstants.keyBiometricEnabled);
-    await _storage.delete(key: AppConstants.keyBiometricEmail);
-    AppLogger.i('disableBiometricLogin: biometría deshabilitada');
-    notifyListeners();
-  }
-
-  /// Ejecuta el login biométrico.
-  ///
-  /// Flujo:
-  /// 1. Verifica que la biometría esté habilitada y haya refresh token.
-  /// 2. El llamador debe invocar [BiometricService.authenticate()] para mostrar
-  ///    el prompt nativo. Si la autenticación biométrica es exitosa, este
-  ///    método intenta refrescar el token usando el refresh token almacenado.
-  /// 3. Si el refresh funciona → login completo (notifyListeners).
-  /// 4. Si el refresh falla → retorna false (el usuario debe re-loguearse).
-  Future<bool> loginWithBiometric() async {
-    final enabled = await isBiometricEnabled();
-    if (!enabled) {
-      AppLogger.w('loginWithBiometric: biometría no habilitada');
-      return false;
-    }
-
-    // Cargar el refresh token desde storage (puede que el usuario no tenga
-    // una sesión activa en memoria pero sí un refresh token persistido).
-    refreshToken ??=
-        await _storage.read(key: AppConstants.keyRefreshToken);
-
-    if (refreshToken == null) {
-      AppLogger.w('loginWithBiometric: no hay refresh token almacenado');
-      return false;
-    }
-
-    AppLogger.i('loginWithBiometric: intentando refresh...');
-    final ok = await tryRefresh();
-    if (!ok) {
-      AppLogger.w('loginWithBiometric: refresh falló, requiere re-login');
-      return false;
-    }
-
-    // Cargar perfil para completar datos en memoria
-    final profile = await fetchProfile();
-    if (profile == null) {
-      AppLogger.w('loginWithBiometric: fetchProfile falló tras refresh');
-      return false;
-    }
-
-    AppLogger.i('loginWithBiometric: login biométrico exitoso');
-    return true;
   }
 }

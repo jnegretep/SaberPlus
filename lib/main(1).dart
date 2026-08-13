@@ -1,10 +1,11 @@
 // lib/main.dart
-// Saber+ — Entry point v1.5.1
-// Cambios vs v1.5.0:
-//   - ✅ FIX #1+#3: GoRouter estable — creado UNA sola vez en initState()
-//     ya no se recrea en cada rebuild (causaba reset a /welcome tras login)
-//   - ✅ initialLocation prioriza auth.token sobre isFirstTime
-//   - ✅ Redirect también aplica a /welcome cuando el usuario ya está logueado
+// Saber+ — Entry point v1.5.0
+// Cambios vs v1.4.1:
+//   - GoRouter para navegación type-safe con auth guards
+//   - flutter_dotenv para config segura
+//   - Material 3 theme (AppTheme)
+//   - AppLogger reemplaza print()
+//   - Firebase keys desde .env
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -13,7 +14,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'config/env.dart';
@@ -120,42 +120,10 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   bool _fcmInitialized = false;
 
-  // ✅ FIX: Router creado UNA sola vez — ya no se recrea en cada rebuild
-  late final GoRouter _router;
-
   @override
   void initState() {
     super.initState();
     _initFCM();
-    _initRouter();
-  }
-
-  void _initRouter() {
-    final auth = context.read<AuthService>();
-    final api = context.read<ApiService>();
-
-    // ✅ FIX #1: Priorizar auth sobre isFirstTime
-    // Si el usuario ya tiene token válido → dashboard
-    // Si no, pero ya vio el onboarding → login
-    // Si es primera vez → welcome (onboarding)
-    final String initialLocation;
-    if (auth.token != null && auth.userId != null) {
-      initialLocation = auth.isProfesor ? '/teacher' : '/dashboard';
-    } else if (widget.isFirstTime) {
-      initialLocation = '/welcome';
-    } else {
-      initialLocation = '/login';
-    }
-
-    _router = buildAppRouter(
-      auth: auth,
-      api: api,
-      initialLocation: initialLocation,
-    );
-
-    AppLogger.d('Router inicializado en: $initialLocation '
-        '(token=${auth.token != null}, userId=${auth.userId}, '
-        'isFirstTime=${widget.isFirstTime})');
   }
 
   Future<void> _initFCM() async {
@@ -178,6 +146,19 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthService>();
+    final api = context.read<ApiService>();
+
+    // Determinar ruta inicial basada en auth state
+    final initialLocation = widget.isFirstTime
+        ? '/welcome'
+        : (auth.token != null ? '/dashboard' : '/login');
+
+    final router = buildAppRouter(
+      auth: auth,
+      api: api,
+      initialLocation: initialLocation,
+    );
+
     final themeProvider = context.watch<ThemeProvider>();
 
     Widget app = MaterialApp.router(
@@ -186,7 +167,7 @@ class _MyAppState extends State<MyApp> {
       darkTheme: AppTheme.dark,
       themeMode: themeProvider.themeMode,
       debugShowCheckedModeBanner: false,
-      routerConfig: _router,
+      routerConfig: router,
     );
 
     // NotificationProvider solo si el usuario está autenticado

@@ -69,10 +69,6 @@ GoRouter buildAppRouter({
   return GoRouter(
     initialLocation: initialLocation,
     debugLogDiagnostics: true,
-    // ✅ FIX #1: refreshListenable permite que el router reaccione a cambios
-    // de auth SIN necesidad de recrear el router. Esto evita que tras login
-    // el usuario sea devuelto a la pantalla inicial.
-    refreshListenable: auth,
     redirect: (context, state) {
       final isAuthenticated = auth.token != null;
       final isPublicRoute = _publicRoutes.contains(state.matchedLocation);
@@ -83,12 +79,10 @@ GoRouter buildAppRouter({
         return '/login';
       }
 
-      // ✅ FIX #1+#3: Si autenticado y en ruta pública (INCLUSIVE /welcome) → dashboard
-      // Antes se excluía /welcome, causaba que tras login el usuario quedara atrapado en welcome
-      if (isAuthenticated && isPublicRoute) {
-        final target = auth.isProfesor ? '/teacher' : '/dashboard';
-        AppLogger.d('Redirect: ${state.matchedLocation} → $target (already auth)');
-        return target;
+      // Si autenticado y en ruta pública (excepto welcome) → dashboard
+      if (isAuthenticated && isPublicRoute && state.matchedLocation != '/welcome') {
+        AppLogger.d('Redirect: ${state.matchedLocation} → /dashboard (already auth)');
+        return '/dashboard';
       }
 
       return null; // Sin redirect

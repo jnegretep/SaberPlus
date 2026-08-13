@@ -5,14 +5,11 @@ import 'dart:convert';
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
 import '../services/notifications_api.dart';
-import '../services/google_auth_service.dart';
-import '../services/biometric_service.dart';
 import '../providers/notification_provider.dart';
 import 'dashboard_screen.dart';
 import '../config/navigation.dart';
 import '../core/theme/app_colors.dart';
 import '../core/constants/app_constants.dart';
-import '../core/utils/app_logger.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -32,15 +29,6 @@ class _LoginScreenState extends State<LoginScreen>
   bool _rememberMe = false;
   String? _error;
 
-  // ✅ FIX #4: estado para Google Sign-In
-  bool _loadingGoogle = false;
-
-  // ✅ FIX #5: estado para login biométrico
-  bool _biometricReady = false;       // si el dispositivo soporta biometría
-  bool _biometricEnabled = false;     // si el usuario ya la activó previamente
-  String? _biometricEmail;            // email asociado (para mostrar en UI)
-  bool _loadingBiometric = false;
-
   // Entrance animation
   late final AnimationController _entranceController;
   late final Animation<double> _logoFade;
@@ -50,7 +38,6 @@ class _LoginScreenState extends State<LoginScreen>
   void initState() {
     super.initState();
     _loadSavedCredentials();
-    _checkBiometricAvailability();   // ✅ FIX #5
 
     // Entrance animation
     _entranceController = AnimationController(
@@ -66,176 +53,6 @@ class _LoginScreenState extends State<LoginScreen>
       curve: const Interval(0.2, 1.0, curve: Curves.easeOutCubic),
     );
     _entranceController.forward();
-  }
-
-  // ✅ FIX #5: verifica si el dispositivo soporta biometría y si ya está activada
-  Future<void> _checkBiometricAvailability() async {
-    final auth = context.read<AuthService>();
-    final support = await BiometricService.checkSupport();
-    final enabled = await auth.isBiometricEnabled();
-    final email = await auth.getBiometricEmail();
-
-    if (!mounted) return;
-    setState(() {
-      _biometricReady = support == BiometricSupport.ready;
-      _biometricEnabled = enabled && _biometricReady;
-      _biometricEmail = email;
-    });
-
-    AppLogger.d('Biometría: ready=$_biometricReady, enabled=$_biometricEnabled, email=$_biometricEmail');
-  }
-
-  // ✅ FIX #4: método para iniciar sesión con Google
-  Future<void> _signInWithGoogle() async {
-    final auth = context.read<AuthService>();
-
-    setState(() {
-      _loadingGoogle = true;
-      _error = null;
-    });
-
-    try {
-      final result = await auth.loginWithGoogle();
-
-      if (!mounted) return;
-      setState(() => _loadingGoogle = false);
-
-      // Usuario canceló el flujo de Google
-      if (!result.success) {
-        if (result.errorMessage == 'cancelled') return; // silencioso
-        setState(() => _error = result.errorMessage ?? 'Error con Google');
-        return;
-      }
-
-      // Usuario nuevo → llevar al step2 con datos precargados
-      if (result.isNewUser) {
-        if (!mounted) return;
-        // Usar context.push para mantener el contexto y pasar los datos extra
-        // El step2 completará el registro con departamento, ciudad, colegio, etc.
-        Nav.goRegisterStep2(
-          context,
-          nombre: result.displayName ?? '',
-          email: result.email ?? '',
-          telefono: '',
-          username: (result.email ?? '').split('@').first,
-        );
-        return;
-      }
-
-      // Usuario existente → el redirect del GoRouter lo lleva al dashboard
-      if (auth.isProfesor) {
-        Nav.goTeacher(context);
-      } else {
-        Nav.goDashboard(context);
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loadingGoogle = false;
-        _error = 'Error inesperado con Google: $e';
-      });
-    }
-  }
-
-  // ✅ FIX #5: método para login con huella
-  Future<void> _loginWithBiometric() async {
-    final auth = context.read<AuthService>();
-
-    // Si el usuario aún no ha activado la biometría, mostrar diálogo explicativo
-    if (!_biometricEnabled) {
-      _showBiometricSetupDialog();
-      return;
-    }
-
-    setState(() {
-      _loadingBiometric = true;
-      _error = null;
-    });
-
-    try {
-      // 1. Mostrar el prompt nativo de huella/rostro
-      final biometricOk = await BiometricService.authenticate(
-        reason: 'Autentícate para ingresar a Saber+ como $_biometricEmail',
-      );
-
-      if (!biometricOk) {
-        if (!mounted) return;
-        setState(() {
-          _loadingBiometric = false;
-          _error = 'Autenticación biométrica cancelada o fallida';
-        });
-        return;
-      }
-
-      // 2. Si la huella es válida, hacer el refresh del token
-      final ok = await auth.loginWithBiometric();
-
-      if (!mounted) return;
-      setState(() => _loadingBiometric = false);
-
-      if (!ok) {
-        setState(() => _error = 'Tu sesión biométrica expiró. Inicia sesión con tus credenciales.');
-        // Desactivar biometría si falla para que el usuario re-login
-        await auth.disableBiometricLogin();
-        if (!mounted) return;
-        setState(() {
-          _biometricEnabled = false;
-        });
-        return;
-      }
-
-      // 3. ¡Login exitoso! El redirect del router lleva al dashboard
-      if (auth.isProfesor) {
-        Nav.goTeacher(context);
-      } else {
-        Nav.goDashboard(context);
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loadingBiometric = false;
-        _error = 'Error: $e';
-      });
-    }
-  }
-
-  /// ✅ FIX #5: Diálogo explicativo cuando el usuario pulsa "Configurar huella"
-  /// pero aún no ha iniciado sesión. Le explica que primero debe loguearse
-  /// normalmente y luego activar la biometría desde su perfil.
-  void _showBiometricSetupDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.fingerprint_rounded, color: AppColors.primary, size: 28),
-            SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Login por huella',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-              ),
-            ),
-          ],
-        ),
-        content: const Text(
-          'Para activar el ingreso con huella:\n\n'
-          '1. Inicia sesión con tu correo y contraseña.\n'
-          '2. Ve a "Más" → "Configuración".\n'
-          '3. Activa la opción "Login por huella".\n\n'
-          'A partir de ese momento, podrás ingresar a Saber+ usando tu huella '
-          'sin escribir tu contraseña.',
-          style: TextStyle(fontSize: 13, height: 1.5),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Entendido'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -274,15 +91,13 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
-  // ✅ MÉTODO _login — Versión simplificada y robusta
-  // El redirect del GoRouter (configurado en app_router.dart con refreshListenable)
-  // se encarga automáticamente de llevar al usuario al dashboard o teacher dashboard
-  // cuando el estado de auth cambia. Solo necesitamos disparar el login.
+  // ✅ MÉTODO _login COMPLETAMENTE CORREGIDO
   Future<void> _login(BuildContext context) async {
     if (!_formKey.currentState!.validate()) return;
 
     final auth = context.read<AuthService>();
 
+    // ✅ Verificar mounted antes de setState
     if (!mounted) return;
     setState(() {
       _loading = true;
@@ -295,6 +110,7 @@ class _LoginScreenState extends State<LoginScreen>
         _passCtrl.text,
       );
 
+      // ✅ Verificar mounted antes de setState
       if (!mounted) return;
       setState(() => _loading = false);
 
@@ -305,44 +121,50 @@ class _LoginScreenState extends State<LoginScreen>
       }
 
       await _saveCredentials();
-
+      
       // Obtener perfil para asegurar datos completos
       final profile = await auth.fetchProfile();
-
+      
+      // ✅ Verificar mounted ANTES de cualquier navegación o setState
       if (!mounted) return;
-
+      
       if (profile == null) {
         setState(() => _error = 'Error obteniendo perfil');
         return;
       }
 
       debugPrint("[LOGIN] Usuario tipo: ${auth.tipoUsuario}");
-
-      // ✅ FIX #1: El redirect del GoRouter se encarga de la navegación
-      // automáticamente cuando notifyListeners() se disparó en auth.login()
-      // y auth.fetchProfile(). Solo necesitamos forzar la navegación al destino
-      // correcto usando context.go() para limpiar el stack.
+      
+      // Navegar según tipo de usuario
       if (auth.isProfesor) {
+        // ✅ Usar pushNamedAndRemoveUntil con mounted verificado
+        if (!mounted) return;
         Nav.goTeacher(context);
       } else {
+        // ✅ Usar pushNamedAndRemoveUntil con mounted verificado
+        if (!mounted) return;
         Nav.goDashboard(context);
       }
+      
     } catch (e) {
+      // ✅ Verificar mounted antes de setState
       if (!mounted) return;
       setState(() => _loading = false);
-
+      
       // Manejar usuario no verificado
-      if (e.toString().contains('unverified') ||
+      if (e.toString().contains('unverified') || 
           (e is Map && e['status'] == 'unverified')) {
+        
         String userId = '';
         String email = _emailCtrl.text.trim();
-
+        
         try {
           final errorData = jsonDecode(e.toString());
           userId = errorData['user_id']?.toString() ?? '';
           email = errorData['email']?.toString() ?? email;
         } catch (_) {}
-
+        
+        // ✅ Verificar mounted antes de navegar
         if (!mounted) return;
         Nav.goVerifyEmail(
           context,
@@ -353,7 +175,8 @@ class _LoginScreenState extends State<LoginScreen>
         );
         return;
       }
-
+      
+      // ✅ Verificar mounted antes de setState
       if (!mounted) return;
       setState(() {
         _error = 'Error inesperado. Intenta nuevamente.';
@@ -715,13 +538,10 @@ class _LoginScreenState extends State<LoginScreen>
 
                               const SizedBox(height: 16),
 
-                              // ✅ FIX #4: Botón de Google conectado al servicio
                               SizedBox(
                                 height: 46,
                                 child: OutlinedButton(
-                                  onPressed: _loadingGoogle || _loading
-                                      ? null
-                                      : _signInWithGoogle,
+                                  onPressed: () {},
                                   style: OutlinedButton.styleFrom(
                                     backgroundColor: AppColors.surface,
                                     foregroundColor: AppColors.textSecondary,
@@ -734,112 +554,25 @@ class _LoginScreenState extends State<LoginScreen>
                                     ),
                                     elevation: 0,
                                   ),
-                                  child: _loadingGoogle
-                                      ? const SizedBox(
-                                          width: 18,
-                                          height: 18,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: AppColors.primary,
-                                          ),
-                                        )
-                                      : Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                            Image.asset(
-                                              'assets/images/google.png',
-                                              height: 18,
-                                            ),
-                                            const SizedBox(width: 10),
-                                            const Text(
-                                              'Continuar con Google',
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w600,
-                                                fontSize: 13,
-                                              ),
-                                            ),
-                                          ],
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Image.asset(
+                                        'assets/images/google.png',
+                                        height: 18,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      const Text(
+                                        'Continuar con Google',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 13,
                                         ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-
-                              // ✅ FIX #5: Botón de login por huella
-                              // Se muestra SIEMPRE si el dispositivo soporta biometría.
-                              // Si el usuario no la ha activado, el botón aparece
-                              // como "Configurar huella" y al pulsarlo muestra un
-                              // diálogo explicativo. Cuando la activa desde su
-                              // perfil, este botón cambia a "Ingresar con huella".
-                              if (_biometricReady) ...[
-                                const SizedBox(height: 12),
-                                SizedBox(
-                                  height: 46,
-                                  child: OutlinedButton.icon(
-                                    onPressed: _loadingBiometric || _loading
-                                        ? null
-                                        : _loginWithBiometric,
-                                    icon: _loadingBiometric
-                                        ? const SizedBox(
-                                            width: 16,
-                                            height: 16,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color: AppColors.primary,
-                                            ),
-                                          )
-                                        : Icon(
-                                            _biometricEnabled
-                                                ? Icons.fingerprint_rounded
-                                                : Icons.fingerprint_outlined,
-                                            color: _biometricEnabled
-                                                ? AppColors.primary
-                                                : AppColors.textTertiary,
-                                            size: 22,
-                                          ),
-                                    label: Text(
-                                      _biometricEnabled
-                                          ? 'Ingresar con huella'
-                                          : 'Configurar huella',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 13,
-                                        color: _biometricEnabled
-                                            ? AppColors.primary
-                                            : AppColors.textTertiary,
-                                      ),
-                                    ),
-                                    style: OutlinedButton.styleFrom(
-                                      backgroundColor: AppColors.surface,
-                                      foregroundColor: AppColors.textSecondary,
-                                      side: BorderSide(
-                                        color: _biometricEnabled
-                                            ? AppColors.primary.withOpacity(0.5)
-                                            : AppColors.border,
-                                        width: 1.5,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      elevation: 0,
-                                    ),
-                                  ),
-                                ),
-                                if (_biometricEnabled && _biometricEmail != null)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 6),
-                                    child: Center(
-                                      child: Text(
-                                        'Huella activada para $_biometricEmail',
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          color: AppColors.textTertiary,
-                                          fontStyle: FontStyle.italic,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ),
-                                  ),
-                              ],
 
                               const SizedBox(height: 24),
 

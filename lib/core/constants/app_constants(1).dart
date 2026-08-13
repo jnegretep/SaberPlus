@@ -16,11 +16,6 @@ class AppConstants {
   static const String keyFirstTime = 'first_time';
   static const String keyRememberMe = 'remember';
   static const String keySavedEmail = 'email';
-  // ✅ FIX #5: Biometría — guardamos flag y el email del usuario que la activó
-  // (NUNCA guardamos la contraseña. Usamos el refresh token revocable + biometría
-  // como factor local. Si el refresh falla, el usuario debe re-loguearse.)
-  static const String keyBiometricEnabled = 'biometric_enabled';
-  static const String keyBiometricEmail = 'biometric_email';
   // NOTA: NUNCA guardar la contraseña en SharedPreferences (security risk)
   // La contraseña se elimina del storage en esta versión.
 

@@ -102,14 +102,12 @@ class _PreviewCardState extends State<PreviewCard>
               child: Stack(
                 children: [
                   // ───────── CARD CONTENT ─────────
-                  // ✅ FIX #2: Aumentada altura de 138 → 152 para evitar overflow
-                  // El Expanded interno ahora tiene espacio suficiente para los textos
                   Container(
                     width: 128,
-                    height: 152,
+                    height: 138,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,
-                      vertical: 8,
+                      vertical: 10,
                     ),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(16),
@@ -126,8 +124,8 @@ class _PreviewCardState extends State<PreviewCard>
                     child: Column(
                       children: [
                         SizedBox(
-                          width: 56,
-                          height: 56,
+                          width: 64,
+                          height: 64,
                           child: Image.asset(
                             widget.imagePath,
                             fit: BoxFit.contain,
@@ -135,7 +133,7 @@ class _PreviewCardState extends State<PreviewCard>
                             colorBlendMode: isDark ? BlendMode.modulate : null,
                             errorBuilder: (_, __, ___) => Icon(
                               widget.icon,
-                              size: 36,
+                              size: 40,
                               color: widget.color,
                             ),
                           ),
@@ -144,45 +142,39 @@ class _PreviewCardState extends State<PreviewCard>
                         Expanded(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
-                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              // ✅ FIX #2: FittedBox + Flexible evita overflow de texto
-                              Flexible(
-                                child: FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: Text(
-                                    safeTitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                      color: primaryTextColor,
-                                    ),
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  safeTitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: primaryTextColor,
                                   ),
                                 ),
                               ),
                               const SizedBox(height: 2),
-                              Flexible(
-                                child: FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: Text(
-                                    safeSubtitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontSize: 9,
-                                      color: tertiaryTextColor,
-                                    ),
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  safeSubtitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: tertiaryTextColor,
                                   ),
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 4),
                         // Status badge
                         Container(
                           padding: const EdgeInsets.symmetric(

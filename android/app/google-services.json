@@ -12,7 +12,20 @@
           "package_name": "com.saberplus.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "341784491066-3mqv37se3kop01jfhhrakal9snumma3b.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.saberplus.app",
+            "certificate_hash": "a0a746d786ea07c3e358f598fd34c5101460bcd7"
+          }
+        },
+        {
+          "client_id": "341784491066-4joca4o88teqotbegmdiosftrpq44pmr.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDXqeFk3e_1lMD7CdkqfHAvyr3RBDL56wQ"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "341784491066-4joca4o88teqotbegmdiosftrpq44pmr.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

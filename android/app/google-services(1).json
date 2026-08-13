@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "341784491066",
+    "project_id": "saberplus-1ec41",
+    "storage_bucket": "saberplus-1ec41.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:341784491066:android:9669486ce19d978d447103",
+        "android_client_info": {
+          "package_name": "com.saberplus.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDXqeFk3e_1lMD7CdkqfHAvyr3RBDL56wQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

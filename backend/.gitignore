@@ -1,0 +1,25 @@
+# Backend .gitignore — SaberPlus
+
+# ✅ NUNCA subir credenciales Firebase / Google a git
+config/firebase-service-account.json
+
+# Composer
+vendor/
+composer.lock
+
+# Logs
+*.log
+error_log
+
+# Config local
+.env
+.env.local
+config/secrets.php
+
+# Uploads temporales
+uploads/temp/
+uploads/cache/
+
+# Backups
+*.sql.bak
+*.zip

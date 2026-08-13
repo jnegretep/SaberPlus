@@ -65,10 +65,6 @@ dependencies:
   firebase_core: ^3.0.0
   firebase_messaging: ^15.0.0
 
-  # ── Auth adicional (FIX #4 y #5) ──
-  google_sign_in: ^6.2.1
-  local_auth: ^2.2.0
-
 dev_dependencies:
   flutter_test:
     sdk: flutter

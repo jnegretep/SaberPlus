@@ -15,14 +15,8 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
 
-    <!-- ✅ FIX #5: Biometría (huella/rostro) -->
-    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
-    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
-
     <!-- Declarar que la cámara es opcional -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <!-- ✅ FIX #5: Declarar que la biometría es opcional -->
-    <uses-feature android:name="android.hardware.fingerprint" android:required="false" />
 
     <application
         android:label="Saber+"

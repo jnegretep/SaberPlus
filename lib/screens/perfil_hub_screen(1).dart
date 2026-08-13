@@ -4,7 +4,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
-import '../services/biometric_service.dart';
 import 'perfil_screen.dart';
 import '../widgets/global_scaffold.dart';
 import '../config/navigation.dart';
@@ -14,7 +13,6 @@ import '../core/animations/shimmer_loading.dart';
 import '../core/widgets/theme_toggle.dart';
 import '../providers/theme_provider.dart';
 import '../core/animations/page_transitions.dart';
-import '../core/utils/app_logger.dart';
 
 class PerfilHubScreen extends StatefulWidget {
   const PerfilHubScreen({Key? key}) : super(key: key);
@@ -28,10 +26,6 @@ class _PerfilHubScreenState extends State<PerfilHubScreen>
   Map<String, dynamic>? user;
   bool _loading = true;
 
-  // ✅ FIX #5: estado para biometría
-  bool _biometricSupported = false;  // dispositivo soporta biometría
-  bool _biometricEnabled = false;    // usuario la activó
-
   // Entrance animation
   late final AnimationController _entranceController;
   late final Animation<double> _heroFade;
@@ -41,7 +35,6 @@ class _PerfilHubScreenState extends State<PerfilHubScreen>
   void initState() {
     super.initState();
     _loadProfile();
-    _checkBiometricStatus();   // ✅ FIX #5
 
     _entranceController = AnimationController(
       vsync: this,
@@ -55,85 +48,6 @@ class _PerfilHubScreenState extends State<PerfilHubScreen>
       parent: _entranceController,
       curve: const Interval(0.2, 1.0, curve: Curves.easeOutCubic),
     );
-  }
-
-  // ✅ FIX #5: verifica el estado de la biometría
-  Future<void> _checkBiometricStatus() async {
-    final auth = Provider.of<AuthService>(context, listen: false);
-    final support = await BiometricService.checkSupport();
-    final enabled = await auth.isBiometricEnabled();
-
-    if (mounted) {
-      setState(() {
-        _biometricSupported = support == BiometricSupport.ready;
-        _biometricEnabled = enabled && _biometricSupported;
-      });
-    }
-  }
-
-  // ✅ FIX #5: activar/desactivar biometría
-  Future<void> _toggleBiometric(bool value) async {
-    final auth = Provider.of<AuthService>(context, listen: false);
-
-    if (value) {
-      // Activar: primero verificar que el dispositivo soporte biometría
-      if (!_biometricSupported) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Tu dispositivo no soporta login biométrico '
-                'o no tienes huellas configuradas.'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-        return;
-      }
-
-      // Pedir autenticación biométrica para confirmar
-      final ok = await BiometricService.authenticate(
-        reason: 'Confirma tu huella para activar el login rápido',
-      );
-
-      if (!ok) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Autenticación cancelada'),
-            backgroundColor: AppColors.warning,
-          ),
-        );
-        return;
-      }
-
-      // Activar en el servicio
-      final enabled = await auth.enableBiometricLogin();
-      if (!mounted) return;
-
-      setState(() => _biometricEnabled = enabled);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(enabled
-              ? '¡Login por huella activado! La próxima vez podrás ingresar '
-                'usando tu huella.'
-              : 'No se pudo activar el login por huella. Intenta '
-                'iniciar sesión primero.'),
-          backgroundColor: enabled ? AppColors.success : AppColors.error,
-        ),
-      );
-    } else {
-      // Desactivar
-      await auth.disableBiometricLogin();
-      if (!mounted) return;
-      setState(() => _biometricEnabled = false);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Login por huella desactivado.'),
-          backgroundColor: AppColors.textSecondary,
-        ),
-      );
-    }
   }
 
   @override
@@ -561,118 +475,7 @@ class _PerfilHubScreenState extends State<PerfilHubScreen>
             ),
           ],
         ),
-
-        // ✅ FIX #5: Toggle de login por huella
-        if (_biometricSupported) ...[
-          const SizedBox(height: 16),
-          _buildBiometricToggle(isDark, surfaceColor),
-        ] else if (_biometricSupported == false) ...[
-          // Dispositivo sin biometría — mostrar info sutil
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: (isDark ? AppColors.darkSurface : AppColors.surface)
-                  .withOpacity(0.5),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: (isDark ? AppColors.darkBorder : AppColors.border)
-                    .withOpacity(0.5),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.info_outline_rounded,
-                    color: AppColors.textTertiary, size: 18),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Tu dispositivo no soporta login biométrico.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textTertiary,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ],
-    );
-  }
-
-  /// ✅ FIX #5: Toggle visual para activar/desactivar el login por huella
-  Widget _buildBiometricToggle(bool isDark, Color surfaceColor) {
-    final borderColor = isDark ? AppColors.darkBorder : AppColors.border;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: surfaceColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadowSm,
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(
-              Icons.fingerprint_rounded,
-              color: AppColors.primary,
-              size: 22,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Login por huella',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.primary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  _biometricEnabled
-                      ? 'Activado. Ingresa con tu huella.'
-                      : 'Activa para ingresar sin contraseña',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: isDark
-                        ? AppColors.darkTextTertiary
-                        : AppColors.textTertiary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Switch.adaptive(
-            value: _biometricEnabled,
-            onChanged: _toggleBiometric,
-            activeColor: AppColors.primary,
-            inactiveThumbColor: AppColors.textTertiary,
-            inactiveTrackColor: borderColor,
-          ),
-        ],
-      ),
     );
   }
 
