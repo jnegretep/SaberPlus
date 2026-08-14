@@ -72,18 +72,4 @@ class Course {
       locked: locked ?? this.locked,
     );
   }
-
-  /// Serializa a JSON para almacenar en caché.
-  /// Necesario porque SharedPreferences no guarda objetos complejos.
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'fullname': fullname,
-        'shortname': shortname,
-        'startdate': startdate,
-        'enddate': enddate,
-        'visible': visible,
-        'progress': progress,
-        'attempted': attempted,
-        'locked': locked,
-      };
 }

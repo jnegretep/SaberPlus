@@ -17,7 +17,7 @@ dependencies:
   # ── Red & API ──
   dio: ^5.9.0
   connectivity_plus: ^5.0.2
-  http: 1.2.2            # todavía usado por api_service.dart (migración gradual a dio)
+  http: 1.2.2            # mantener mientras auth_service lo usa (migrar a dio en fase 2)
 
   # ── Almacenamiento & Seguridad ──
   flutter_secure_storage: ^8.0.0

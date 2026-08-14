@@ -17,7 +17,6 @@ import 'course_list_screen.dart';
 import 'challenge_list_screen.dart';
 import '../widgets/global_scaffold.dart';
 import '../widgets/gamification/gamification_header.dart';
-import '../config/navigation.dart';
 import '../models/course.dart';
 import '../models/summary_stats.dart';
 import '../providers/gamification_provider.dart';
@@ -226,7 +225,15 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 // 🔹 GAMIFICATION HEADER (XP bar + racha)
                                 // ✅ FASE 3.2: Barra de progreso de nivel + indicador de racha
                                 GamificationHeader(
-                                  onXpTap: () => Nav.goAchievements(context),
+                                  onXpTap: () {
+                                    // TODO: navegar a pantalla de logros (Fase 3.3)
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Próximamente: pantalla de logros'),
+                                        duration: Duration(seconds: 1),
+                                      ),
+                                    );
+                                  },
                                   onStreakTap: () {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(

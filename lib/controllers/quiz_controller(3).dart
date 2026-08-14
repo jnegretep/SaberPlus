@@ -395,25 +395,11 @@ void _handleTimeExpired() async {
     _inFlightSlots.clear();
   }
 
-  /// Navega a la página indicada de forma instantánea.
-  ///
-  /// ✅ FIX #8: Cambio de UX — la navegación es instantánea.
-  /// El envío de la respuesta pendiente se hace en background (fire-and-forget)
-  /// para no bloquear la UI. Si el envío falla, se reintenta automáticamente
-  /// gracias al debounce timer ya configurado en [markPending].
   Future<void> navigateToPage(int index) async {
     if (index < 0 || index >= totalPages) return;
-
-    // Disparar envío pendiente en background (sin await)
     final currentSlot = currentQuestion?.slot;
-    if (currentSlot != null) {
-      // Fire-and-forget: el envío se realiza pero no esperamos a que termine
-      flushPendingForSlot(currentSlot).catchError((e) {
-        debugPrint('[QuizController] Background flush error (ignored): $e');
-      });
-    }
+    if (currentSlot != null) await flushPendingForSlot(currentSlot);
 
-    // Cambiar de página inmediatamente
     currentPage = index;
     notifyListeners();
   }

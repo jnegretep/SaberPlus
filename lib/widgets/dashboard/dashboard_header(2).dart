@@ -13,13 +13,11 @@ import '../../core/animations/app_animations.dart';
 class DashboardHeader extends StatelessWidget {
   final String userName;
   final String? avatarUrl;
-  final bool isRefreshing; // ✅ Indicador de refresh en background
 
   const DashboardHeader({
     super.key,
     required this.userName,
     required this.avatarUrl,
-    this.isRefreshing = false,
   });
 
   @override
@@ -61,33 +59,12 @@ class DashboardHeader extends StatelessWidget {
                   color: isDark ? AppColors.darkTextPrimary : AppColors.textSecondary,
                 ),
               ),
-              // ✅ Si está refrescando, muestra "Actualizando..." en lugar del saludo
-              Row(
-                children: [
-                  if (isRefreshing)
-                    SizedBox(
-                      width: 11,
-                      height: 11,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 1.5,
-                        valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-                      ),
-                    )
-                  else
-                    Icon(
-                      Icons.bolt_rounded,
-                      size: 13,
-                      color: primaryColor.withOpacity(0.7),
-                    ),
-                  const SizedBox(width: 4),
-                  Text(
-                    isRefreshing ? 'Actualizando...' : '¡Sigue aprendiendo!',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary,
-                    ),
-                  ),
-                ],
+              Text(
+                '¡Sigue aprendiendo!',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary,
+                ),
               ),
             ],
           ),

@@ -39,15 +39,6 @@ class SummaryStats {
     );
   }
 
-  /// Serializa a JSON para almacenar en caché.
-  Map<String, dynamic> toJson() => {
-        'simulacros_realizados': simulacrosRealizados,
-        'ultima_fecha': ultimaFecha?.toIso8601String(),
-        'promedio_global': promedioGlobal,
-        'tiempo_promedio_seg': tiempoPromedioSeg,
-        'areas': areas.map((k, v) => MapEntry(k, v)),
-      };
-
   static double? _toDoubleOrNull(dynamic v) {
     if (v == null) return null;
     if (v is num) return v.toDouble();

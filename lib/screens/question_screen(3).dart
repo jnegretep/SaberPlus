@@ -309,142 +309,79 @@ Widget _renderHtmlWithMath(String htmlText, {bool isOption = false}) {
     );
   }
 
-/// ✅ FIX #8: Navegación instantánea entre preguntas.
-///
-/// Antes: cada navegación hacía `fetchAttemptData` + `flushPendingForSlot`
-/// esperando respuesta del backend → 1-3 segundos de retraso.
-///
-/// Ahora:
-/// - No verifica el estado del intento en cada navegación (ya hay un timer
-///   cada 30s que lo hace en `_checkAttemptStatus`).
-/// - El envío de la respuesta pendiente se dispara en background
-///   (fire-and-forget) dentro de `c.navigateToPage()`.
-/// - La animación del PageView es más rápida (200ms en lugar de 300ms).
-/// - Si hay algo enviándose en background, se muestra un indicador sutil
-///   en la barra superior pero NO bloquea la navegación.
 Future<void> _navigateTo(int index) async {
   final c = widget.controller;
-  if (_isSubmitting) return; // solo bloquear si está finalizando
-
-  // Verificación barata: si ya sabemos que el intento está cerrado, ir a review
-  // (sin hacer petición al backend — el timer de 30s ya lo detectó)
-  if (c.isFinished) {
-    if (!mounted) return;
-    final reviewData = c.reviewData;
-    if (reviewData != null) {
+  if (_isSubmitting) return;
+  
+  // Verificar si el intento sigue activo antes de navegar
+  try {
+    final attemptData = await c.api.fetchAttemptData(c.attempt!.id);
+    final timefinish = attemptData['timefinish'] ?? 0;
+    final reviewMode = attemptData['reviewMode'] ?? false;
+    
+    if (timefinish > 0 || reviewMode) {
+      // El intento ya está cerrado, redirigir a review
+      final reviewData = c.reviewData ?? await c.api.reviewAttempt(c.attempt!.id);
+      if (!mounted) return;
+      
       Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => ReviewScreen(
-            reviewData: reviewData,
-            courseId: widget.courseId,
-            quizId: widget.controller.quizId,
-          ),
-        ),
+  context,
+  MaterialPageRoute(
+    builder: (_) => ReviewScreen(
+      reviewData: reviewData,
+      courseId: widget.courseId,
+      quizId: widget.controller.quizId, // ¡NUEVO!
+    ),
+  ),
+);
+      return;
+    }
+  } catch (e) {
+    debugPrint("Error verificando estado antes de navegar: $e");
+  }
+  
+  // Si el intento sigue activo, proceder con la navegación normal
+  setState(() => _isSubmitting = true);
+  try {
+    final curSlot = c.currentQuestion?.slot;
+    if (curSlot != null) await c.flushPendingForSlot(curSlot);
+
+    await c.navigateToPage(index);
+    if (_pageController.hasClients) {
+      await _pageController.animateToPage(
+        c.currentPage,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
       );
     }
-    return;
+    _syncTabWithPage();
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Error al navegar: $e'),
+      backgroundColor: AppColors.error,
+      behavior: SnackBarBehavior.floating,
+    ));
+  } finally {
+    if (mounted) setState(() => _isSubmitting = false);
   }
-
-  // Navegación instantánea: el controller dispara el flush en background
-  await c.navigateToPage(index);
-
-  // Animación suave y rápida del PageView
-  if (!mounted) return;
-  if (_pageController.hasClients) {
-    await _pageController.animateToPage(
-      c.currentPage,
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOutCubic,
-    );
-  }
-  _syncTabWithPage();
 }
 
-/// ✅ FIX #8: Finalización optimizada del intento.
-///
-/// Antes: hacía `fetchAttemptData` para verificar si ya estaba cerrado
-/// (redundante porque el timer de 30s ya lo hace) → 1-2s extra.
-///
-/// Ahora:
-/// - Si el controller ya sabe que está finalizado, va directo a review.
-/// - Si no, hace flush + finish en background mostrando un diálogo de progreso.
 Future<void> _finishFlow() async {
   final c = widget.controller;
   if (_isSubmitting) return;
-
+  
   setState(() => _isSubmitting = true);
-
-  // Caso A: el intento ya está cerrado (detectado por el timer de 30s)
-  if (c.isFinished && c.reviewData != null) {
-    if (!mounted) return;
-    await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ReviewScreen(
-          reviewData: c.reviewData!,
-          courseId: widget.courseId,
-          quizId: c.quizId,
-        ),
-      ),
-    );
-    if (mounted) Navigator.pop(context, true);
-    if (mounted) setState(() => _isSubmitting = false);
-    return;
-  }
-
-  // Caso B: finalizar el intento ahora
-  // Mostrar diálogo de progreso no cancelable
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => PopScope(
-      canPop: false,
-      child: AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        content: Row(
-          children: [
-            const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2.5),
-            ),
-            const SizedBox(width: 20),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    'Finalizando simulacro...',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    'Calculando tu puntaje',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-
   try {
-    await c.flushAllPending();
-    await c.finish();
-
-    if (!mounted) return;
-    Navigator.pop(context); // cerrar diálogo de progreso
-
-    if (!_navigatedToReview) {
-      _navigatedToReview = true;
+    // Primero verificar si el intento ya está cerrado
+    final attemptData = await c.api.fetchAttemptData(c.attempt!.id);
+    final timefinish = attemptData['timefinish'] ?? 0;
+    final reviewMode = attemptData['reviewMode'] ?? false;
+    
+    if (timefinish > 0 || reviewMode) {
+      // El intento ya está cerrado, ir a review y luego regresar
       final reviewData = c.reviewData ?? await c.api.reviewAttempt(c.attempt!.id);
       if (!mounted) return;
-
+      
       await Navigator.push<bool>(
         context,
         MaterialPageRoute(
@@ -455,16 +392,40 @@ Future<void> _finishFlow() async {
           ),
         ),
       );
-
+      
+      // Regresar a la pantalla anterior
+      if (mounted) Navigator.pop(context, true);
+      return;
+    }
+    
+    // Si no está cerrado, proceder normalmente
+    await c.flushAllPending();
+    await c.finish();
+    
+    if (!_navigatedToReview) {
+      _navigatedToReview = true;
+      final reviewData = c.reviewData ?? await c.api.reviewAttempt(c.attempt!.id);
+      if (!mounted) return;
+      
+      await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ReviewScreen(
+            reviewData: reviewData,
+            courseId: widget.courseId,
+            quizId: c.quizId,
+          ),
+        ),
+      );
+      
+      // Regresar a la pantalla anterior
       if (mounted) Navigator.pop(context, true);
     }
   } catch (e) {
     if (!mounted) return;
-    Navigator.pop(context); // cerrar diálogo de progreso
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('Error: $e'),
       backgroundColor: AppColors.error,
-      behavior: SnackBarBehavior.floating,
     ));
   } finally {
     if (mounted) setState(() => _isSubmitting = false);

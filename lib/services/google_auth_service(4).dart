@@ -4,16 +4,16 @@
 // El idToken de Google se envía al backend (google_login.php) que lo valida
 // con Firebase Admin SDK y devuelve el JWT propio de Saber+.
 
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:dio/dio.dart';
+import 'package:http/http.dart' as http;
 
 import '../config/env.dart';
 import '../core/utils/app_logger.dart';
 import '../core/constants/app_constants.dart';
-import '../core/services/dio_client.dart';
 
 /// Resultado del flujo de Google Sign-In.
 /// El frontend decide qué hacer según [isNewUser].
@@ -138,41 +138,37 @@ class GoogleAuthService {
     required String displayName,
     required String photoUrl,
   }) async {
-    AppLogger.d('GoogleAuthService: POST → /google_login.php');
+    final url = Uri.parse('${Env.apiBaseUrl}/google_login.php');
+    AppLogger.d('GoogleAuthService: POST → $url');
 
     try {
-      // ✅ FASE 1.3: Usar DioClient (con interceptores de logging y retry)
-      // Google login es endpoint público, no necesita token JWT
-      final response = await DioClient.post(
-        '/google_login.php',
-        data: {
+      final resp = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
           'id_token': idToken,
           'email': email,
           'display_name': displayName,
           'photo_url': photoUrl,
-        },
-        options: Options(
-          sendTimeout: const Duration(seconds: 20),
-          receiveTimeout: const Duration(seconds: 20),
-        ),
-      );
+        }),
+      ).timeout(const Duration(seconds: 20));
 
-      if (response.statusCode != 200) {
-        final errBody = response.data is Map
-            ? response.data as Map<String, dynamic>
-            : <String, dynamic>{};
+      AppLogger.api('POST', '/google_login.php', statusCode: resp.statusCode);
+
+      if (resp.statusCode != 200) {
+        final errBody = jsonDecode(resp.body);
         return GoogleAuthResult(
           success: false,
-          errorMessage: errBody['msg']?.toString() ?? 'Error en el servidor',
+          errorMessage: errBody['msg'] ?? 'Error en el servidor',
         );
       }
 
-      final data = response.data as Map<String, dynamic>;
+      final data = jsonDecode(resp.body);
 
       if (data['status'] != 'ok') {
         return GoogleAuthResult(
           success: false,
-          errorMessage: data['msg']?.toString() ?? 'Error desconocido',
+          errorMessage: data['msg'] ?? 'Error desconocido',
         );
       }
 
@@ -181,9 +177,9 @@ class GoogleAuthService {
         return GoogleAuthResult(
           success: true,
           isNewUser: true,
-          email: data['google_email']?.toString() ?? email,
-          displayName: data['google_name']?.toString() ?? displayName,
-          photoUrl: data['google_picture']?.toString() ?? photoUrl,
+          email: data['google_email'] ?? email,
+          displayName: data['google_name'] ?? displayName,
+          photoUrl: data['google_picture'] ?? photoUrl,
         );
       }
 
@@ -209,18 +205,10 @@ class GoogleAuthService {
         isNewUser: false,
         jwtToken: token,
         refreshToken: refreshToken,
-        user: data['user'] is Map
-            ? Map<String, dynamic>.from(data['user'] as Map)
-            : null,
+        user: data['user'] is Map ? Map<String, dynamic>.from(data['user']) : null,
         email: email,
         displayName: displayName,
         photoUrl: photoUrl,
-      );
-    } on DioException catch (e) {
-      AppLogger.e('GoogleAuthService: Dio error en /google_login.php', e);
-      return GoogleAuthResult(
-        success: false,
-        errorMessage: _dioToMessage(e),
       );
     } catch (e) {
       AppLogger.e('GoogleAuthService: error en POST /google_login.php', e);
@@ -228,24 +216,6 @@ class GoogleAuthService {
         success: false,
         errorMessage: 'No se pudo conectar con el servidor',
       );
-    }
-  }
-
-  /// Convierte un DioException a un mensaje amigable para el usuario.
-  static String _dioToMessage(DioException e) {
-    switch (e.type) {
-      case DioExceptionType.connectionTimeout:
-      case DioExceptionType.sendTimeout:
-      case DioExceptionType.receiveTimeout:
-        return 'El servidor tardó demasiado en responder. Inténtalo de nuevo.';
-      case DioExceptionType.connectionError:
-        return 'Sin conexión a internet. Verifica tu red.';
-      case DioExceptionType.badResponse:
-        final status = e.response?.statusCode ?? 0;
-        if (status >= 500) return 'El servidor tiene problemas temporales.';
-        return 'Error del servidor ($status).';
-      default:
-        return 'No se pudo conectar con el servidor.';
     }
   }
 

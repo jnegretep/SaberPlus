@@ -1,21 +1,18 @@
 // lib/services/auth_service.dart
-// Servicio de autenticación — v1.6.0
-// Cambios vs v1.5.1:
-//   - ✅ FASE 1.3: Migración completa a Dio con interceptores
-//     (auth automático, retry, refresh token automático, logging)
-//   - ✅ FIX #4: loginWithGoogle() para Google Sign-In
-//   - ✅ FIX #5: Soporte para login biométrico
+// Servicio de autenticación — v1.5.1
+// Cambios vs v1.5.0:
+//   - ✅ FIX #4: Agregado loginWithGoogle() para Google Sign-In
+//   - ✅ FIX #5: Agregado soporte para login biométrico (habilitar/deshabilitar/login)
 //   - URLs desde Env, AppLogger, constantes centralizadas
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:dio/dio.dart';
+import 'package:http/http.dart' as http;
 
 import '../config/env.dart';
 import '../core/utils/app_logger.dart';
 import '../core/constants/app_constants.dart';
-import '../core/services/dio_client.dart';
 import 'google_auth_service.dart';
 
 class AuthService extends ChangeNotifier {
@@ -93,38 +90,32 @@ class AuthService extends ChangeNotifier {
   // ────────────────────────────────────────────
   // LOGIN
   // ────────────────────────────────────────────
-  /// Inicia sesión con email y contraseña.
-  ///
-  /// ✅ FASE 1.3: Migrado a Dio. Los interceptores se encargan de:
-  /// - Logging automático de la petición
-  /// - Retry automático si hay error de red
-  /// - No necesita inyectar el token manualmente (login es endpoint público)
   Future<bool> login(String email, String password) async {
-    AppLogger.d('login POST → /login.php');
+    final url = Uri.parse('${Env.apiBaseUrl}/login.php');
+    AppLogger.d('login POST → $url');
 
     try {
-      final response = await DioClient.post(
-        '/login.php',
-        data: {'email': email, 'password': password},
+      final resp = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'password': password}),
       );
 
-      if (response.statusCode != 200) return false;
+      AppLogger.api('POST', '/login.php', statusCode: resp.statusCode);
 
-      final data = response.data as Map<String, dynamic>;
+      if (resp.statusCode != 200) return false;
+
+      final data = jsonDecode(resp.body);
       if (data['status'] != 'ok') return false;
 
-      token = data['token'] as String?;
-      refreshToken = data['refresh_token'] as String?;
-
-      // ✅ Sincronizar tokens con el DioClient para que los interceptores los usen
-      DioClient.authToken = token;
-      DioClient.refreshToken = refreshToken;
+      token = data['token'];
+      refreshToken = data['refresh_token'];
 
       await _storage.write(key: AppConstants.keyJwt, value: token);
       await _storage.write(key: AppConstants.keyRefreshToken, value: refreshToken);
 
       if (data['user'] != null) {
-        user = data['user'] as Map<String, dynamic>;
+        user = data['user'];
         _mapUserFields(user!);
         await _storage.write(
             key: AppConstants.keyUser, value: jsonEncode(user));
@@ -134,9 +125,6 @@ class AuthService extends ChangeNotifier {
 
       notifyListeners();
       return true;
-    } on DioException catch (e) {
-      AppLogger.e('login ERROR (Dio)', e);
-      return false;
     } catch (e) {
       AppLogger.e('login ERROR', e);
       return false;
@@ -146,17 +134,14 @@ class AuthService extends ChangeNotifier {
   // ────────────────────────────────────────────
   // LOGOUT
   // ────────────────────────────────────────────
-  /// Cierra la sesión del usuario.
-  ///
-  /// ✅ FASE 1.3: Migrado a Dio. El AuthInterceptor inyecta el token
-  /// automáticamente, no necesitamos pasarlo manualmente.
   Future<void> logout() async {
     AppLogger.i('logout triggered');
 
     try {
       if (token != null) {
-        // El AuthInterceptor se encarga del header Authorization
-        await DioClient.post('/logout.php');
+        final url = Uri.parse('${Env.apiBaseUrl}/logout.php');
+        await http.post(url,
+            headers: {'Authorization': 'Bearer $token'});
       }
     } catch (_) {
       AppLogger.w('logout API error (ignored)');
@@ -177,10 +162,6 @@ class AuthService extends ChangeNotifier {
     idUsuario = null;
     moodleId = null;
 
-    // ✅ Limpiar tokens del DioClient
-    DioClient.authToken = null;
-    DioClient.refreshToken = null;
-
     // Limpiar storage
     await _storage.delete(key: AppConstants.keyJwt);
     await _storage.delete(key: AppConstants.keyRefreshToken);
@@ -197,15 +178,6 @@ class AuthService extends ChangeNotifier {
   // ────────────────────────────────────────────
   // REFRESH TOKEN
   // ────────────────────────────────────────────
-  /// Refresca el token JWT usando el refresh token.
-  ///
-  /// ✅ FASE 1.3: Migrado a Dio. Usa un Dio separado sin interceptores
-  /// para evitar recursión (el RefreshTokenInterceptor llamaría a este
-  /// método infinitamente si usáramos la instancia principal).
-  ///
-  /// Nota: El RefreshTokenInterceptor del DioClient también hace refresh
-  /// automáticamente cuando detecta un 401. Este método público se usa
-  /// para el login biométrico (que parte sin sesión activa en memoria).
   Future<bool> tryRefresh() async {
     if (refreshToken == null) {
       refreshToken =
@@ -218,40 +190,29 @@ class AuthService extends ChangeNotifier {
 
     AppLogger.d('Trying token refresh...');
 
-    try {
-      // Dio separado sin interceptores para evitar recursión
-      final rawDio = Dio(BaseOptions(
-        baseUrl: Env.apiBaseUrl,
-        connectTimeout: const Duration(seconds: 10),
-        receiveTimeout: const Duration(seconds: 10),
-      ));
+    final url = Uri.parse('${Env.apiBaseUrl}/refresh.php');
 
-      final response = await rawDio.post(
-        '/refresh.php',
-        data: {'refresh_token': refreshToken},
-        options: Options(
-          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        ),
+    try {
+      final resp = await http.post(
+        url,
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: {'refresh_token': refreshToken},
       );
 
-      if (response.statusCode != 200) return false;
+      if (resp.statusCode != 200) return false;
 
-      final data = response.data as Map<String, dynamic>;
+      final data = jsonDecode(resp.body);
       if (data['status'] != 'ok') return false;
 
-      token = data['token'] as String?;
+      token = data['token'];
 
       if (data['refresh_token'] != null) {
-        refreshToken = data['refresh_token'] as String?;
+        refreshToken = data['refresh_token'];
         await _storage.write(
             key: AppConstants.keyRefreshToken, value: refreshToken);
       }
 
       await _storage.write(key: AppConstants.keyJwt, value: token);
-
-      // ✅ Sincronizar con DioClient
-      DioClient.authToken = token;
-      DioClient.refreshToken = refreshToken;
 
       AppLogger.i('Token refreshed successfully');
       notifyListeners();
@@ -265,29 +226,31 @@ class AuthService extends ChangeNotifier {
   // ────────────────────────────────────────────
   // FETCH PROFILE
   // ────────────────────────────────────────────
-  /// Obtiene el perfil del usuario desde el backend.
-  ///
-  /// ✅ FASE 1.3: Migrado a Dio. El AuthInterceptor inyecta el token
-  /// automáticamente, y el RefreshTokenInterceptor renueva el token si
-  /// el backend responde 401. Ya no necesitamos manejar refresh manualmente.
   Future<Map<String, dynamic>?> fetchProfile() async {
     if (token == null) {
       token = await _storage.read(key: AppConstants.keyJwt);
       if (token == null) return null;
-      // Sincronizar con DioClient
-      DioClient.authToken = token;
     }
 
+    final url = Uri.parse('${Env.apiBaseUrl}/perfil.php');
     AppLogger.d('fetchProfile — tipoUsuario actual: $tipoUsuario');
 
     try {
-      final response = await DioClient.post('/perfil.php');
+      final resp = await http.post(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
 
-      if (response.statusCode == 200) {
-        final data = response.data as Map<String, dynamic>;
+      AppLogger.api('POST', '/perfil.php', statusCode: resp.statusCode);
+
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body);
 
         if (data['status'] == 'ok') {
-          user = data['user'] as Map<String, dynamic>;
+          user = data['user'];
           _mapUserFields(user!);
 
           await _storage.write(
@@ -298,15 +261,9 @@ class AuthService extends ChangeNotifier {
         }
       }
 
-      // Si llegamos aquí, el RefreshTokenInterceptor ya intentó renovar
-      // y falló. No reintentar manualmente para evitar bucles.
-      AppLogger.w('fetchProfile: status ${response.statusCode}, refresh ya intentado por interceptor');
-    } on DioException catch (e) {
-      // Si es 401, el RefreshTokenInterceptor ya lo manejó
-      if (e.response?.statusCode == 401) {
-        AppLogger.w('fetchProfile: 401 (refresh ya intentado por interceptor)');
-      } else {
-        AppLogger.e('fetchProfile ERROR (Dio)', e);
+      // Si falla → intentar refresh
+      if (await tryRefresh()) {
+        return fetchProfile();
       }
     } catch (e) {
       AppLogger.e('fetchProfile ERROR', e);
@@ -369,10 +326,6 @@ class AuthService extends ChangeNotifier {
     token = await _storage.read(key: AppConstants.keyJwt);
     refreshToken = await _storage.read(key: AppConstants.keyRefreshToken);
 
-    // ✅ Sincronizar tokens con DioClient para que los interceptores los usen
-    DioClient.authToken = token;
-    DioClient.refreshToken = refreshToken;
-
     final userRaw = await _storage.read(key: AppConstants.keyUser);
     if (userRaw != null) {
       try {
@@ -413,10 +366,6 @@ class AuthService extends ChangeNotifier {
     // Usuario existente — aplicar el JWT recibido
     token = result.jwtToken;
     refreshToken = result.refreshToken;
-
-    // ✅ Sincronizar tokens con DioClient
-    DioClient.authToken = token;
-    DioClient.refreshToken = refreshToken;
 
     if (result.user != null) {
       user = result.user;

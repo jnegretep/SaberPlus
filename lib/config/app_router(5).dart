@@ -45,7 +45,6 @@ import '../screens/teacher/teacher_reports_screen.dart';
 import '../screens/teacher/teacher_stats_screen.dart';
 import '../screens/teacher/teacher_students_screen.dart';
 import '../screens/invitations_screen.dart';
-import '../screens/achievements_screen.dart';
 
 /// Rutas que NO requieren autenticación
 const _publicRoutes = {
@@ -254,12 +253,6 @@ GoRouter buildAppRouter({
       GoRoute(
         path: '/estadisticas',
         builder: (context, state) => StatsHomeScreen(),
-      ),
-
-      // ── Logros / Achievements ──
-      GoRoute(
-        path: '/achievements',
-        builder: (context, state) => const AchievementsScreen(),
       ),
 
       // ── Retos (Challenges) ──

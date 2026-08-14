@@ -147,9 +147,6 @@ class Nav {
   // ── Estadísticas ──
   static void goEstadisticas(BuildContext context) => context.push('/estadisticas');
 
-  // ── Logros / Achievements ──
-  static void goAchievements(BuildContext context) => context.push('/achievements');
-
   // ── Retos ──
   static void goChallenges(BuildContext context) => context.push('/challenges');
   static void goCreateChallenge(BuildContext context) => context.push('/challenges/create');

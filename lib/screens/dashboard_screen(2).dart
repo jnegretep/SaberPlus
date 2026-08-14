@@ -16,11 +16,8 @@ import '../widgets/dashboard/section_card.dart';
 import 'course_list_screen.dart';
 import 'challenge_list_screen.dart';
 import '../widgets/global_scaffold.dart';
-import '../widgets/gamification/gamification_header.dart';
-import '../config/navigation.dart';
 import '../models/course.dart';
 import '../models/summary_stats.dart';
-import '../providers/gamification_provider.dart';
 import 'dart:math';
 import '../widgets/ad_overlay.dart';
 import 'chat_screen.dart';
@@ -198,13 +195,12 @@ class _DashboardScreenState extends State<DashboardScreen>
                             subtitle: dashboard.error!,
                             ctaLabel: 'Reintentar',
                             onCta: () {
-                              context.read<DashboardProvider>().loadDashboardData(forceRefresh: true);
+                              context.read<DashboardProvider>().loadDashboardData();
                             },
                           ),
                         )
                       : RefreshIndicator(
-                          // ✅ Pull-to-refresh real: ignora el caché
-                          onRefresh: () => dashboard.loadDashboardData(forceRefresh: true),
+                          onRefresh: () => dashboard.loadDashboardData(),
                           color: AppColors.primary,
                           backgroundColor: AppColors.surface,
                           displacement: 40,
@@ -218,27 +214,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 DashboardHeader(
                                   userName: userName,
                                   avatarUrl: avatarUrl,
-                                  isRefreshing: dashboard.isRefreshing,
-                                ),
-
-                                const SizedBox(height: 16),
-
-                                // 🔹 GAMIFICATION HEADER (XP bar + racha)
-                                // ✅ FASE 3.2: Barra de progreso de nivel + indicador de racha
-                                GamificationHeader(
-                                  onXpTap: () => Nav.goAchievements(context),
-                                  onStreakTap: () {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          dashboard.isRefreshing
-                                              ? 'Racha: cargando...'
-                                              : '¡Llevas ${context.read<GamificationProvider>().currentStreak} días de racha!',
-                                        ),
-                                        duration: const Duration(seconds: 2),
-                                      ),
-                                    );
-                                  },
                                 ),
 
                                 const SizedBox(height: 24),
