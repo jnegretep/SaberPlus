@@ -9,8 +9,6 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../core/theme/app_colors.dart';
-import '../providers/gamification_provider.dart';
-import '../widgets/gamification/celebration_overlay.dart';
 
 class ReviewScreen extends StatefulWidget {
    final Map<String, dynamic> reviewData;
@@ -450,96 +448,10 @@ Future<void> _sendStatsIfNeeded(
       await api.saveSimulacroResult(payload);
       await prefs.setBool(key, true);
       _statsSent = true;
-
+      
       debugPrint("[STATS] Estadísticas guardadas exitosamente para quiz $quizId");
-
-      // ✅ FASE 3.4: Otorgar XP y mostrar celebración
-      await _awardXpAndCelebrate(globalScore.round(), quizId);
     } catch (e) {
       debugPrint("[STATS] Error guardando estadísticas: $e");
-    }
-  }
-
-  /// ✅ FASE 3.4: Otorga XP por completar el simulacro y muestra celebración.
-  ///
-  /// La XP se calcula así:
-  /// - XP base: 100 por completar
-  /// - Bonus por puntaje: puntaje * 0.5 (ej: 300 pts → +150 XP)
-  /// - Total: 100 + 150 = 250 XP
-  ///
-  /// Si el usuario sube de nivel o desbloquea badges, la celebración es más grande.
-  Future<void> _awardXpAndCelebrate(int score, int quizId) async {
-    try {
-      final gamif = context.read<GamificationProvider>();
-
-      // Calcular XP: base + bonus por puntaje
-      final xpBase = 100;
-      final xpBonus = (score * 0.5).round();
-      final xpTotal = xpBase + xpBonus;
-
-      // Otorgar XP
-      final result = await gamif.awardXp(
-        reason: 'simulacro',
-        xpAmount: xpTotal,
-        referenceId: quizId,
-        description: 'Completaste un simulacro ICFES',
-      );
-
-      if (!mounted) return;
-
-      if (result == null) {
-        debugPrint('[CELEBRATION] No se pudo otorgar XP');
-        return;
-      }
-
-      // Esperar un momento para que el review screen se renderice completo
-      await Future.delayed(const Duration(milliseconds: 800));
-      if (!mounted) return;
-
-      // Decidir qué tipo de celebración mostrar (priorizar la más importante)
-      if (result.leveledUp && result.newBadges.isNotEmpty) {
-        // Subió de nivel + nuevos badges → celebración de nivel con badges
-        await CelebrationOverlay.show(
-          context,
-          type: CelebrationType.levelUp,
-          level: result.newLevel,
-          newBadges: result.newBadges,
-          xpEarned: result.xpAwarded,
-        );
-      } else if (result.leveledUp) {
-        // Solo subió de nivel
-        await CelebrationOverlay.show(
-          context,
-          type: CelebrationType.levelUp,
-          level: result.newLevel,
-          xpEarned: result.xpAwarded,
-        );
-      } else if (result.newBadges.isNotEmpty) {
-        // Solo nuevos badges
-        await CelebrationOverlay.show(
-          context,
-          type: CelebrationType.badgeUnlocked,
-          newBadges: result.newBadges,
-          xpEarned: result.xpAwarded,
-        );
-      } else if (score >= 400) {
-        // Puntaje alto (sin nivel ni badges) → celebración de puntaje
-        await CelebrationOverlay.show(
-          context,
-          type: CelebrationType.highScore,
-          score: score,
-          xpEarned: result.xpAwarded,
-        );
-      } else {
-        // Celebración básica de simulacro completado
-        await CelebrationOverlay.show(
-          context,
-          type: CelebrationType.simulacroComplete,
-          xpEarned: result.xpAwarded,
-        );
-      }
-    } catch (e) {
-      debugPrint('[CELEBRATION] Error: $e');
     }
   }
 
