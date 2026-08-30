@@ -38,4 +38,13 @@ class CourseSection {
       modules: parsedModules,
     );
   }
+
+  /// ✅ FASE 4: Serializa a JSON para almacenar en caché offline.
+  Map<String, dynamic> toJson() => {
+        'sectionid': id,
+        'name': name,
+        'summary': summary,
+        'files': files,
+        'modules': modules.map((m) => m.toJson()).toList(),
+      };
 }

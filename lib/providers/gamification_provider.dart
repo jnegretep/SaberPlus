@@ -178,6 +178,17 @@ class GamificationProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Obtiene el ranking de usuarios.
+  /// Expone el servicio para que la pantalla de ranking lo use directamente.
+  ///
+  /// [period] puede ser: 'all_time', 'weekly', 'monthly'.
+  Future<RankingResponse?> getRanking({
+    String period = 'all_time',
+    int limit = 50,
+  }) async {
+    return await _service.getRanking(period: period, limit: limit);
+  }
+
   // ── Helpers para cálculo de nivel (misma fórmula que el backend) ──
 
   /// XP necesaria para alcanzar un nivel.

@@ -21,10 +21,14 @@ import 'config/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/utils/app_logger.dart';
 import 'core/constants/app_constants.dart';
+import 'core/services/cache_service.dart';
+import 'core/services/course_cache_service.dart';
+import 'core/services/dio_client.dart';
 import 'services/auth_service.dart';
 import 'services/api_service.dart';
 import 'services/teacher_service.dart';
 import 'providers/dashboard_provider.dart';
+import 'providers/gamification_provider.dart';
 import 'providers/notification_provider.dart';
 import 'providers/theme_provider.dart';
 import 'services/notifications_api.dart';
@@ -75,9 +79,21 @@ Future<void> main() async {
     await prefs.setBool(AppConstants.keyFirstTime, false);
   }
 
+  // ✅ Inicializar caché (usa SharedPreferences internamente)
+  await CacheService.init();
+  // ✅ FASE 4: Inicializar caché de cursos (offline-first)
+  await CourseCacheService.init();
+
   // ── AuthService precarga ──
   final authService = AuthService();
   await authService.loadFromStorage();
+
+  // ✅ FASE 1.3: Configurar callback de sesión expirada para DioClient
+  // Cuando el refresh token también expira, el interceptor fuerza el logout
+  DioClient.onSessionExpired = () async {
+    AppLogger.w('Sesión expirada (DioClient callback) — forzando logout');
+    await authService.logout();
+  };
 
   // ── Theme Provider ──
   final themeProvider = ThemeProvider();
@@ -101,6 +117,10 @@ Future<void> main() async {
           create: (context) => DashboardProvider(context.read<ApiService>()),
           update: (context, api, dashboard) => dashboard ?? DashboardProvider(api),
         ),
+        // ✅ FASE 3: GamificationProvider (XP, niveles, rachas, badges)
+        ChangeNotifierProvider<GamificationProvider>(
+          create: (_) => GamificationProvider(),
+        ),
       ],
       child: MyApp(isFirstTime: isFirstTime),
     ),
@@ -119,6 +139,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   bool _fcmInitialized = false;
+  bool _gamifLoaded = false;
 
   // ✅ FIX: Router creado UNA sola vez — ya no se recrea en cada rebuild
   late final GoRouter _router;
@@ -128,6 +149,47 @@ class _MyAppState extends State<MyApp> {
     super.initState();
     _initFCM();
     _initRouter();
+
+    // ✅ FASE 3: Escuchar cambios de auth para cargar gamificación al hacer login
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final auth = context.read<AuthService>();
+      auth.addListener(_onAuthChanged);
+      // Cargar gamificación si ya hay sesión al iniciar
+      _maybeLoadGamification();
+    });
+  }
+
+  @override
+  void dispose() {
+    // Limpiar listener para evitar memory leaks
+    try {
+      final auth = context.read<AuthService>();
+      auth.removeListener(_onAuthChanged);
+    } catch (_) {}
+    super.dispose();
+  }
+
+  void _onAuthChanged() {
+    _maybeLoadGamification();
+  }
+
+  /// ✅ FASE 3: Carga el estado de gamificación cuando hay sesión activa.
+  void _maybeLoadGamification() {
+    try {
+      final auth = context.read<AuthService>();
+      final gamif = context.read<GamificationProvider>();
+
+      if (auth.token != null && auth.userId != null && !_gamifLoaded) {
+        _gamifLoaded = true;
+        gamif.loadStatus();
+      } else if (auth.token == null && _gamifLoaded) {
+        // Sesión cerrada: resetear
+        _gamifLoaded = false;
+        gamif.clear();
+      }
+    } catch (_) {
+      // provider puede no estar disponible si el árbol cambió
+    }
   }
 
   void _initRouter() {

@@ -33,10 +33,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/vendor/autoload.php';
 require __DIR__ . '/includes/conexion.php';
-require __DIR__ . '/jwt_config.php';
-
-use Firebase\JWT\JWT;
-use Firebase\JWT\Key;
+require __DIR__ . '/auth_middleware.php';
 
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
@@ -53,29 +50,22 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit(json_encode(['status' => 'error', 'msg' => 'Método no permitido']));
 }
 
-// ── Autenticación JWT ──
-$hdrs = function_exists('getallheaders') ? getallheaders() : [];
-$authHeader = $hdrs['Authorization'] ?? $hdrs['authorization'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+// ── Usuario autenticado por auth_middleware.php ──
+$user_id = (int)($authUser['id_usuario'] ?? 0);
 
-if (!preg_match('/Bearer\s+(\S+)/', $authHeader, $m)) {
-    http_response_code(401);
-    exit(json_encode(['status' => 'error', 'msg' => 'No autorizado']));
+if ($user_id <= 0) {
+    $user_id = (int)($authUser['moodle_userid'] ?? 0);
 }
 
-try {
-    $decoded = JWT::decode($m[1], new Key($configJwt['secret'], 'HS256'));
-    $user_id = (int)($decoded->data->id_usuario ?? 0);
-    if ($user_id <= 0) {
-        $user_id = (int)($decoded->data->moodle_userid ?? 0);
-    }
-    if ($user_id <= 0) {
-        http_response_code(401);
-        exit(json_encode(['status' => 'error', 'msg' => 'Usuario no válido']));
-    }
-} catch (Exception $e) {
+if ($user_id <= 0) {
     http_response_code(401);
-    exit(json_encode(['status' => 'error', 'msg' => 'Token inválido']));
+    exit(json_encode([
+        'status' => 'error',
+        'msg' => 'Usuario no válido'
+    ]));
 }
+
+error_log("[GAMIFICATION_AWARD_XP] Usuario autenticado: ID=" . $user_id);
 
 // ── Leer input ──
 $input = json_decode(file_get_contents('php://input'), true) ?: [];
@@ -96,6 +86,8 @@ if (!in_array($reason, $valid_reasons)) {
     exit(json_encode(['status' => 'error', 'msg' => 'reason no válido']));
 }
 
+error_log("[GAMIFICATION_AWARD_XP] Petición: user_id={$user_id}, reason={$reason}, xp_amount={$xp_amount}, reference_id=" . ($reference_id ?? 'null'));
+
 try {
     // ── 1. Asegurar que existe registro en user_gamification ──
     $conexion->prepare("INSERT IGNORE INTO user_gamification (user_id) VALUES (?)")->execute([$user_id]);
@@ -106,12 +98,13 @@ try {
     }
     if ($xp_amount <= 0) {
         // Nada que otorgar
+        $current_xp = _getUserXp($conexion, $user_id);
         echo json_encode([
             'status' => 'ok',
             'data' => [
                 'xp_awarded' => 0,
-                'total_xp' => _getUserXp($conexion, $user_id),
-                'level' => _levelFromXp(_getUserXp($conexion, $user_id)),
+                'total_xp' => $current_xp,
+                'level' => _levelFromXp($current_xp),
                 'leveled_up' => false,
                 'new_badges' => [],
                 'streak_updated' => false,
@@ -188,13 +181,78 @@ try {
     ], JSON_UNESCAPED_UNICODE);
 
 } catch (Throwable $e) {
-    error_log("[AWARD_XP] Error: " . $e->getMessage());
+
+    // ============================================================
+    // LOG DETALLADO DEL ERROR 500
+    // ============================================================
+
+    $errorMessage = $e->getMessage();
+    $errorFile    = $e->getFile();
+    $errorLine    = $e->getLine();
+    $errorClass   = get_class($e);
+
+    // Información adicional de la petición
+    $requestMethod = $_SERVER['REQUEST_METHOD'] ?? 'UNKNOWN';
+    $requestUri    = $_SERVER['REQUEST_URI'] ?? 'UNKNOWN';
+
+    // Usuario autenticado, si llegó a identificarse antes del error
+    $debugUserId = isset($user_id) ? $user_id : 'NO_DEFINIDO';
+
+    // Construimos un mensaje muy claro para Apache/PHP
+    $logMessage =
+        "\n\n"
+        . "============================================================\n"
+        . "[GAMIFICATION_AWARD_XP] ERROR HTTP 500\n"
+        . "============================================================\n"
+        . "FECHA/HORA : " . date('Y-m-d H:i:s') . "\n"
+        . "MÉTODO     : " . $requestMethod . "\n"
+        . "URI        : " . $requestUri . "\n"
+        . "USER ID    : " . $debugUserId . "\n"
+        . "REASON     : " . (isset($reason) ? $reason : 'NO_DEFINIDO') . "\n"
+        . "XP_AMOUNT  : " . (isset($xp_amount) ? $xp_amount : 'NO_DEFINIDO') . "\n"
+        . "REFERENCE  : " . (isset($reference_id) ? ($reference_id ?? 'null') : 'NO_DEFINIDO') . "\n"
+        . "TIPO ERROR : " . $errorClass . "\n"
+        . "MENSAJE    : " . $errorMessage . "\n"
+        . "ARCHIVO    : " . $errorFile . "\n"
+        . "LÍNEA      : " . $errorLine . "\n"
+        . "============================================================\n";
+
+    // Si existe una excepción anterior, también la mostramos
+    if ($e->getPrevious() !== null) {
+        $previous = $e->getPrevious();
+
+        $logMessage .=
+            "ERROR ANTERIOR:\n"
+            . "TIPO       : " . get_class($previous) . "\n"
+            . "MENSAJE    : " . $previous->getMessage() . "\n"
+            . "ARCHIVO    : " . $previous->getFile() . "\n"
+            . "LÍNEA      : " . $previous->getLine() . "\n"
+            . "============================================================\n";
+    }
+
+    // Stack trace completo
+    $logMessage .=
+        "STACK TRACE:\n"
+        . $e->getTraceAsString() . "\n"
+        . "============================================================\n\n";
+
+    // Enviar todo al log de PHP/Apache
+    error_log($logMessage);
+
+    // Respuesta HTTP 500
     http_response_code(500);
-    exit(json_encode([
-        'status' => 'error',
-        'msg' => 'Error otorgando XP',
-        'debug' => $e->getMessage(),
-    ]));
+
+    header('Content-Type: application/json; charset=utf-8');
+
+    echo json_encode([
+        'status'  => 'error',
+        'message' => 'Error interno en gamification_award_xp.php',
+        'error'   => $errorMessage,
+        'file'    => basename($errorFile),
+        'line'    => $errorLine,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    exit;
 }
 
 
@@ -310,19 +368,26 @@ function _updateDailyActivity(PDO $conexion, int $user_id, string $reason, int $
     $today = date('Y-m-d');
 
     // Determinar qué columna incrementar
-    $column = match ($reason) {
-        'simulacro' => 'simulacros_completed',
-        'reto' => 'retos_completed',
-        'curso' => 'cursos_accessed',
-        default => null,
-    };
+    // (switch clásico para compatibilidad con PHP 7 — match() es PHP 8.0+)
+    $column = null;
+    switch ($reason) {
+        case 'simulacro':
+            $column = 'simulacros_completed';
+            break;
+        case 'reto':
+            $column = 'retos_completed';
+            break;
+        case 'curso':
+            $column = 'cursos_accessed';
+            break;
+    }
 
     // Insert or update del registro diario
     if ($column) {
         $sql = "
-            INSERT INTO user_daily_activity (user_id, activity_date, $column, xp_earned)
+            INSERT INTO user_daily_activity (user_id, activity_date, {$column}, xp_earned)
             VALUES (?, ?, 1, ?)
-            ON DUPLICATE KEY UPDATE $column = $column + 1, xp_earned = xp_earned + VALUES(xp_earned)
+            ON DUPLICATE KEY UPDATE {$column} = {$column} + 1, xp_earned = xp_earned + VALUES(xp_earned)
         ";
     } else {
         $sql = "

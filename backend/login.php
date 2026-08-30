@@ -2,8 +2,10 @@
 declare(strict_types=1);
 
 // login.php - Optimizado y con mejor manejo de logs
+// âœ… FASE 4: URLs centralizadas en includes/config.php
 require __DIR__ . '/vendor/autoload.php';
 require __DIR__ . '/includes/conexion.php';
+require __DIR__ . '/includes/config.php';
 require __DIR__ . '/includes/moodle.php';
 $configJwt = require __DIR__ . '/jwt_config.php';
 
@@ -22,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
-    exit(json_encode(['status' => 'error', 'msg' => 'Método no permitido']));
+    exit(json_encode(['status' => 'error', 'msg' => 'MÃ©todo no permitido']));
 }
 
 // 1. Validar input
@@ -32,7 +34,7 @@ $password = (string)($input['password'] ?? $input['contrasena'] ?? '');
 
 if ($email === '' || $password === '') {
     http_response_code(400);
-    exit(json_encode(['status' => 'error', 'msg' => 'Email y contraseña requeridos']));
+    exit(json_encode(['status' => 'error', 'msg' => 'Email y contraseÃ±a requeridos']));
 }
 
 error_log("[LOGIN] Intento de login para: $email");
@@ -57,7 +59,7 @@ if ($user) {
     $tipoUsuario = $user['tipo_usuario'];
     $moodleUsername = trim((string)$user['moodle_username']);
     
-    // Verificar si el usuario está verificado
+    // Verificar si el usuario estÃ¡ verificado
     if ($user['email_verificado'] == 0) {
         error_log("[LOGIN] Usuario no verificado: $email");
         http_response_code(403);
@@ -83,7 +85,7 @@ if ($user) {
         if (empty($remoteUsers)) {
             error_log("[LOGIN] Usuario no existe en Moodle: $email");
             http_response_code(401);
-            exit(json_encode(['status' => 'error', 'msg' => 'Credenciales inválidas']));
+            exit(json_encode(['status' => 'error', 'msg' => 'Credenciales invÃ¡lidas']));
         }
         
         $remote = $remoteUsers[0];
@@ -99,22 +101,32 @@ if ($user) {
     }
 }
 
-// ?? CORRECCIÓN: Usar IP pública (Moodle la exige)
-$loginUrl = sprintf(
-    '%s/login/token.php?username=%s&password=%s&service=moodle_mobile_app',
-    'http://172.93.49.94/preicfes',  // <-- IP pública, no localhost
-    urlencode($moodleUsername),
-    urlencode($password)
-);
+// âœ… FASE 4: AutenticaciÃ³n en Moodle vÃ­a POST (no GET) con URL centralizada
+// Importante: las credenciales se envÃ­an en el body, no en la URL,
+// por seguridad (no quedan en logs de Apache/proxies).
+$loginUrl = getMoodleLoginUrl();
 
-error_log("[LOGIN] Autenticando en Moodle: $loginUrl");
+error_log("[LOGIN] Autenticando en Moodle: $loginUrl (usuario: $moodleUsername)");
+
+$postData = http_build_query([
+    'username' => $moodleUsername,
+    'password' => $password,
+    'service'  => MOODLE_SERVICE_NAME,
+]);
+
 $ch = curl_init($loginUrl);
 curl_setopt_array($ch, [
+    CURLOPT_POST           => true,
+    CURLOPT_POSTFIELDS     => $postData,
     CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_TIMEOUT => 30,
+    CURLOPT_TIMEOUT        => 30,
     CURLOPT_CONNECTTIMEOUT => 30,
-    CURLOPT_SSL_VERIFYPEER => false,
+    CURLOPT_SSL_VERIFYPEER => true,   // âœ… Verificar SSL (HTTPS obligatorio)
     CURLOPT_FOLLOWLOCATION => true,
+    CURLOPT_HTTPHEADER     => [
+        'Content-Type: application/x-www-form-urlencoded',
+        'Accept: application/json',
+    ],
 ]);
 
 $response = curl_exec($ch);
@@ -125,7 +137,7 @@ curl_close($ch);
 if ($curlErr) {
     error_log("[LOGIN] Error cURL: $curlErr");
     http_response_code(502);
-    exit(json_encode(['status' => 'error', 'msg' => 'Error de conexión con Moodle']));
+    exit(json_encode(['status' => 'error', 'msg' => 'Error de conexiÃ³n con Moodle']));
 }
 
 $data = json_decode($response, true) ?? [];
@@ -136,7 +148,7 @@ if ($httpCode !== 200 || isset($data['error'])) {
     http_response_code(401);
     exit(json_encode([
         'status' => 'error',
-        'msg' => $data['error'] ?? 'Credenciales inválidas'
+        'msg' => $data['error'] ?? 'Credenciales invÃ¡lidas'
     ]));
 }
 
@@ -156,14 +168,14 @@ try {
     $moodleUserId = (int)($siteInfo['userid'] ?? 0);
     
     if ($moodleUserId <= 0) {
-        throw new Exception('userid inválido');
+        throw new Exception('userid invÃ¡lido');
     }
     error_log("[LOGIN] Moodle User ID obtenido: $moodleUserId");
     
 } catch (Exception $e) {
     error_log("[LOGIN] Error obteniendo site_info: " . $e->getMessage());
     http_response_code(502);
-    exit(json_encode(['status' => 'error', 'msg' => 'Error obteniendo información del usuario']));
+    exit(json_encode(['status' => 'error', 'msg' => 'Error obteniendo informaciÃ³n del usuario']));
 }
 
 // 7. Obtener nombre completo si es necesario
@@ -275,7 +287,7 @@ try {
     $userData = $stmtUser->fetch(PDO::FETCH_ASSOC);
     
     if (!$userData) {
-        throw new Exception('Usuario no encontrado después de login');
+        throw new Exception('Usuario no encontrado despuÃ©s de login');
     }
     
 } catch (Exception $e) {

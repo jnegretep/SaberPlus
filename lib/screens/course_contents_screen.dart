@@ -9,6 +9,10 @@ import 'dart:convert';
 import '../models/course_section.dart';
 import '../models/course_module.dart';
 import '../services/api_service.dart';
+import '../core/services/course_cache_service.dart';
+import '../core/utils/app_logger.dart';
+import '../widgets/math/math_text.dart';
+import '../widgets/video/premium_video_player.dart';
 import 'quiz_intro_screen.dart';
 import 'html_viewer_screen.dart';
 import '../core/theme/app_colors.dart';
@@ -40,11 +44,22 @@ class _CourseContentsScreenState extends State<CourseContentsScreen>
     _loadContents();
   }
 
-  Future<void> _loadContents() async {
+  /// ✅ FASE 4: Carga contenido del curso con caché offline (TTL 24h).
+  /// Si no hay internet, usa el caché aunque esté expirado.
+  Future<void> _loadContents({bool forceRefresh = false}) async {
     final api = context.read<ApiService>();
 
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
+
     try {
-      final sections = await api.fetchCourseContents(widget.courseId);
+      final sections = await CourseCacheService.fetchCourseContentsWithCache(
+        api: api,
+        courseId: widget.courseId,
+        forceRefresh: forceRefresh,
+      );
       if (!mounted) return;
 
       setState(() {
@@ -56,6 +71,8 @@ class _CourseContentsScreenState extends State<CourseContentsScreen>
       _tabController =
           TabController(length: _sections.length, vsync: this);
     } catch (e) {
+      AppLogger.e('CourseContents: error cargando contenido', e);
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _loadError = e.toString();
@@ -261,7 +278,7 @@ class _CourseContentsScreenState extends State<CourseContentsScreen>
                 ),
               ),
             ),
-            ...videos.map((url) => _VideoCard(url: url)),
+            ...videos.map((url) => PremiumVideoPlayer(url: url)),
           ],
 
           if (s.modules.isNotEmpty) ...[
@@ -546,89 +563,10 @@ class _CourseContentsScreenState extends State<CourseContentsScreen>
 
   // ───────────────── HTML WITH LATEX ─────────────────
 
+  /// ✅ FASE 4.2: Renderizado mejorado — usa MathText con soporte para
+  /// múltiples formatos (LaTeX, MathML, Moodle spans, $...$, etc.)
   Widget _buildHtmlWithLatex(String html) {
     if (html.trim().isEmpty) return const SizedBox.shrink();
-    
-    final regex = RegExp(r'(\\\(.+?\\\)|\\\[.+?\\\])', dotAll: true);
-    final matches = regex.allMatches(html);
-
-    if (matches.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.shadowMd,
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: HtmlWidget(
-          html,
-          textStyle: TextStyle(
-            fontSize: 15,
-            color: AppColors.borderDark,
-            height: 1.5,
-          ),
-        ),
-      );
-    }
-
-    final widgets = <Widget>[];
-    int last = 0;
-
-    for (final m in matches) {
-      if (m.start > last) {
-        widgets.add(HtmlWidget(
-          html.substring(last, m.start),
-          textStyle: TextStyle(
-            fontSize: 15,
-            color: AppColors.borderDark,
-            height: 1.5,
-          ),
-        ));
-      }
-
-      final latex = m.group(0)!
-          .replaceAll(r'\(', '')
-          .replaceAll(r'\)', '')
-          .replaceAll(r'\[', '')
-          .replaceAll(r'\]', '');
-
-      widgets.add(
-        Container(
-          margin: const EdgeInsets.symmetric(vertical: 8),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceClean,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.border, width: 1),
-          ),
-          child: Center(
-            child: Math.tex(
-              latex,
-              textStyle: TextStyle(fontSize: 18),
-            ),
-          ),
-        ),
-      );
-
-      last = m.end;
-    }
-
-    if (last < html.length) {
-      widgets.add(HtmlWidget(
-        html.substring(last),
-        textStyle: TextStyle(
-          fontSize: 15,
-          color: AppColors.borderDark,
-          height: 1.5,
-        ),
-      ));
-    }
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -643,9 +581,9 @@ class _CourseContentsScreenState extends State<CourseContentsScreen>
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: widgets,
+      child: MathText(
+        html: html,
+        isOption: false,
       ),
     );
   }
@@ -660,192 +598,5 @@ class _CourseContentsScreenState extends State<CourseContentsScreen>
   }
 }
 
-// ───────────────── VIDEO CARD ─────────────────
-
-class _VideoCard extends StatefulWidget {
-  final String url;
-  const _VideoCard({required this.url});
-
-  @override
-  State<_VideoCard> createState() => _VideoCardState();
-}
-
-class _VideoCardState extends State<_VideoCard> {
-  late VideoPlayerController _controller;
-  ChewieController? _chewie;
-  bool _isInitializing = true;
-  bool _hasError = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _initializeVideo();
-  }
-
-  Future<void> _initializeVideo() async {
-    try {
-      // Limpiar la URL antes de usarla
-      String cleanUrl = widget.url.trim();
-      
-      // Asegurarse de que la URL esté completa
-      if (!cleanUrl.startsWith('http')) {
-        cleanUrl = 'https://$cleanUrl';
-      }
-      
-      _controller = VideoPlayerController.networkUrl(Uri.parse(cleanUrl));
-      await _controller.initialize();
-      
-      if (!mounted) return;
-      
-      setState(() {
-        _chewie = ChewieController(
-          videoPlayerController: _controller,
-          autoPlay: false,
-          looping: false,
-          showControls: true,
-          materialProgressColors: ChewieProgressColors(
-            playedColor: AppColors.primary,
-            handleColor: AppColors.primary,
-            backgroundColor: AppColors.stepInactive,
-            bufferedColor: AppColors.textDisabled,
-          ),
-          placeholder: Container(
-            color: AppColors.divider,
-            child: const Center(
-              child: Icon(
-                Icons.videocam_outlined,
-                color: AppColors.textDisabled,
-                size: 48,
-              ),
-            ),
-          ),
-          errorBuilder: (context, errorMessage) {
-            return Container(
-              color: AppColors.divider,
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.error_outline,
-                      color: AppColors.error,
-                      size: 48,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Error cargando video',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-        _isInitializing = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isInitializing = false;
-        _hasError = true;
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _chewie?.dispose();
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_isInitializing) {
-      return Container(
-        height: 200,
-        margin: const EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          color: AppColors.divider,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: const Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
-          ),
-        ),
-      );
-    }
-
-    if (_hasError) {
-      return Container(
-        height: 200,
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.divider,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.error_outline,
-                color: AppColors.error,
-                size: 48,
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'No se pudo cargar el video',
-                style: TextStyle(
-                  color: AppColors.textDisabled,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                widget.url.length > 50 
-                    ? '${widget.url.substring(0, 50)}...' 
-                    : widget.url,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: AppColors.textDisabled,
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_chewie == null) return const SizedBox.shrink();
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadowLg,
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: AspectRatio(
-          aspectRatio: _controller.value.aspectRatio,
-          child: Chewie(controller: _chewie!),
-        ),
-      ),
-    );
-  }
-}
+// Nota: El antiguo _VideoCard fue reemplazado por PremiumVideoPlayer
+// (lib/widgets/video/premium_video_player.dart) que incluye soporte offline.

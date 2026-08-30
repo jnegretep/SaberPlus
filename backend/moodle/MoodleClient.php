@@ -8,7 +8,8 @@ class MoodleClient
 
     /**
      * @param string $baseUrl   URL completa al endpoint REST de Moodle, p.ej:
-     *                          "http://172.93.49.94/preicfes/webservice/rest/server.php"
+     *                          "https://preicfes.corpoinstel.edu.co/webservice/rest/server.php"
+     *                          (definida en includes/config.php)
      * @param string $format    Formato de respuesta, normalmente "json"
      */
     public function __construct(string $baseUrl, string $format = 'json')
@@ -18,14 +19,14 @@ class MoodleClient
     }
 
     /**
-     * Invoca un WS de Moodle vía POST x-www-form-urlencoded
+     * Invoca un WS de Moodle vÃ­a POST x-www-form-urlencoded
      *
-     * Añadimos fallback automático: si pedimos mod_quiz_get_attempt_data y recibimos
-     * la excepción 'attemptalreadyclosed', reintentamos con mod_quiz_get_attempt_review.
+     * AÃ±adimos fallback automÃ¡tico: si pedimos mod_quiz_get_attempt_data y recibimos
+     * la excepciÃ³n 'attemptalreadyclosed', reintentamos con mod_quiz_get_attempt_review.
      *
      * @param string $token         Token de Moodle
-     * @param string $functionName  Nombre de la función WS
-     * @param array  $params        Parámetros específicos de la función
+     * @param string $functionName  Nombre de la funciÃ³n WS
+     * @param array  $params        ParÃ¡metros especÃ­ficos de la funciÃ³n
      * @return array                JSON decodificado como array asociativo
      * @throws Exception            En caso de error cURL o WS (si el fallback falla)
      */
@@ -41,7 +42,7 @@ class MoodleClient
 
             $postString = http_build_query($postFields, '', '&');
 
-            // Log del endpoint completo (útil para debugging)
+            // Log del endpoint completo (Ãºtil para debugging)
             error_log('[MoodleClient] WS URL: ' . $this->url . '?' . $postString);
 
             $ch = curl_init($this->url);
@@ -68,8 +69,8 @@ class MoodleClient
             }
             if (isset($decoded['exception'])) {
                 // Decodificamos un mensaje amigable si existe
-                $msg = $decoded['message'] ?? $decoded['errorcode'] ?? 'Excepción WS';
-                // Lanzamos la excepción con el mensaje para que el llamador la maneje
+                $msg = $decoded['message'] ?? $decoded['errorcode'] ?? 'ExcepciÃ³n WS';
+                // Lanzamos la excepciÃ³n con el mensaje para que el llamador la maneje
                 throw new Exception('[MoodleClient] Moodle WS Error: ' . $msg);
             }
             return $decoded;
@@ -82,15 +83,15 @@ class MoodleClient
             $errMsg = $e->getMessage();
             error_log("[MoodleClient] Request failed for function={$functionName} : {$errMsg}");
 
-            // Fallback específico: si pedimos mod_quiz_get_attempt_data y la excepción indica intento cerrado,
-            // reintentamos con mod_quiz_get_attempt_review (respuesta de revisión).
+            // Fallback especÃ­fico: si pedimos mod_quiz_get_attempt_data y la excepciÃ³n indica intento cerrado,
+            // reintentamos con mod_quiz_get_attempt_review (respuesta de revisiÃ³n).
            if ($functionName === 'mod_quiz_get_attempt_data' &&
     (
         stripos($errMsg, 'attemptalreadyclosed') !== false ||
         stripos($errMsg, 'ya ha sido finalizado') !== false
     )
 ) {
-    error_log('[MoodleClient] Detected closed attempt — switching to mod_quiz_get_attempt_review');
+    error_log('[MoodleClient] Detected closed attempt Â— switching to mod_quiz_get_attempt_review');
     try {
         return $doRequest('mod_quiz_get_attempt_review');
     } catch (Exception $e2) {

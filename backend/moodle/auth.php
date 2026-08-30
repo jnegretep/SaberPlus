@@ -1,10 +1,13 @@
 <?php
 // /var/www/html/api/prepsaber/backend/moodle/auth.php
+// âœ… FASE 4: URLs centralizadas en includes/config.php
 header('Content-Type: application/json');
+
+require_once __DIR__ . '/../includes/config.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
-    echo json_encode(['error' => 'Método no permitido']);
+    echo json_encode(['error' => 'MÃ©todo no permitido']);
     exit;
 }
 
@@ -19,20 +22,41 @@ if (! $username || ! $password) {
     exit;
 }
 
-// 2. Configuración mínima: URL de Moodle y nombre del servicio
-$MOODLE_URL     = 'http://172.93.49.94/preicfes';
-$SERVICE_NAME   = 'PrepSaber service';  // Igual al “shortname” de tu servicio WS en Moodle
+// 2. ConfiguraciÃ³n centralizada
+$SERVICE_NAME = MOODLE_SERVICE_NAME;
 
-// 3. Llamada al endpoint de token de Moodle
-$loginUrl = $MOODLE_URL . '/login/token.php'
-          . '?username=' . urlencode($username)
-          . '&password=' . urlencode($password)
-          . '&service='  . urlencode($SERVICE_NAME);
+// 3. Llamada al endpoint de token de Moodle vÃ­a POST (seguridad)
+$loginUrl = getMoodleLoginUrl();
+
+$postData = http_build_query([
+    'username' => $username,
+    'password' => $password,
+    'service'  => $SERVICE_NAME,
+]);
 
 $ch = curl_init($loginUrl);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt_array($ch, [
+    CURLOPT_POST           => true,
+    CURLOPT_POSTFIELDS     => $postData,
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_TIMEOUT        => 30,
+    CURLOPT_CONNECTTIMEOUT => 30,
+    CURLOPT_SSL_VERIFYPEER => true,
+    CURLOPT_HTTPHEADER     => [
+        'Content-Type: application/x-www-form-urlencoded',
+        'Accept: application/json',
+    ],
+]);
+
 $response = curl_exec($ch);
+$curlErr = curl_error($ch);
 curl_close($ch);
+
+if ($curlErr) {
+    http_response_code(502);
+    echo json_encode(['error' => 'Error conectando con Moodle: ' . $curlErr]);
+    exit;
+}
 
 $data = json_decode($response, true);
 if (isset($data['error'])) {
@@ -43,7 +67,7 @@ if (isset($data['error'])) {
 
 // 4. Tenemos { token, username, userid, ... }
 //    Guardamos o actualizamos el usuario en nuestra base de datos
-//    para enlazarlo luego con las llamadas WS. Asumimos MySQL + PDO.
+//    para enlazarlo luego con las llamadas WS. Asumemos MySQL + PDO.
 
 try {
     $pdo = new PDO('mysql:host=localhost;dbname=prepsaber', 'db_user', 'db_pass');
@@ -66,10 +90,7 @@ try {
     exit;
 }
 
-// 5. Generamos un JWT propio para Flutter (o sesión PHP, según tu sistema)
-//    Aquí devolvemos el token de Moodle + moodle_userid.
-//    En producción deberías emitir un JWT firmado con tu clave.
-
+// 5. Generamos un JWT propio para Flutter
 echo json_encode([
     'moodle_userid' => $data['userid'],
     'moodle_token'  => $data['token'],

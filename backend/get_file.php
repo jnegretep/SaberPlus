@@ -2,8 +2,11 @@
 declare(strict_types=1);
 
 // =======================================
-// Proxy de archivos Moodle — PrepSaber
+// Proxy de archivos Moodle - PrepSaber
 // =======================================
+
+// âœ… FASE 4: URLs y tokens centralizados en includes/config.php
+require_once __DIR__ . '/includes/config.php';
 
 // Permitir CORS
 header("Access-Control-Allow-Origin: *");
@@ -15,24 +18,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// Validar parámetro URL
+// Validar parÃ¡metro URL
 $url = $_GET['url'] ?? '';
 if (! $url) {
     http_response_code(400);
     header("Content-Type: application/json; charset=UTF-8");
-    echo json_encode(['status' => 'error', 'msg' => 'Falta parámetro url']);
+    echo json_encode(['status' => 'error', 'msg' => 'Falta parÃ¡metro url']);
     exit;
 }
 
-// Token con permisos de lectura
-$token = '37663518c05c753401b5fa535ceb7316';
+// Token con permisos de lectura (centralizado en config.php)
+$token = MOODLE_WS_TOKEN;
 
 // ======================================================
 // 1. Decodificar y sanear URL
 // ======================================================
 $url = urldecode($url);
 
-// Corregir coma en IP (172,93.49.94 -> 172.93.49.94)
+// Corregir coma en IP (172,93.49.94 -> 172.93.49.94) â€” legacy de la IP antigua
 $url = preg_replace('/(\d+),(\d+\.\d+\.\d+)/', '$1.$2', $url);
 
 // Recortar basura en primer '<' o '%3C'
@@ -62,7 +65,7 @@ if ($query) {
 if (strpos($url, 'pluginfile.php') === false) {
     http_response_code(400);
     header("Content-Type: application/json; charset=UTF-8");
-    echo json_encode(['status' => 'error', 'msg' => 'URL no válida', 'url' => $url]);
+    echo json_encode(['status' => 'error', 'msg' => 'URL no vÃ¡lida', 'url' => $url]);
     exit;
 }
 
@@ -71,7 +74,7 @@ if (!preg_match('#/webservice/pluginfile\.php/#', $url)) {
     $url = preg_replace('#/pluginfile\.php/#', '/webservice/pluginfile.php/', $url);
 }
 
-// Añadir token si no está
+// AÃ±adir token si no estÃ¡
 if (!preg_match('/([?&])token=/', $url)) {
     $url .= (strpos($url, '?') === false ? '?' : '&') . 'token=' . urlencode($token);
 }
@@ -119,7 +122,7 @@ if ($httpcode !== 200 || !$body) {
 }
 
 // ======================================================
-// 4. Determinar tipo MIME si Moodle no lo envía bien
+// 4. Determinar tipo MIME si Moodle no lo envÃ­a bien
 // ======================================================
 if (!$contentType || stripos($contentType, 'text/html') !== false) {
     $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION));

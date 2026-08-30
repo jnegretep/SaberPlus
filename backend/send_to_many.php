@@ -1,11 +1,14 @@
 <?php
 /**
- * Envía una notificación a múltiples usuarios
+ * EnvÃ­a una notificaciÃ³n a mÃºltiples usuarios
  *
  * @param array  $userIds  IDs de usuarios destino
  * @param string $type     Tipo de evento (challenge_created, challenge_accepted, etc.)
  * @param array  $data     Payload estructurado del evento
  */
+
+// âœ… FASE 4: URLs centralizadas en includes/config.php
+require_once __DIR__ . '/includes/config.php';
 
 function sendNotificationToMany(array $userIds, string $type, array $data = [])
 {
@@ -18,11 +21,11 @@ function sendNotificationToMany(array $userIds, string $type, array $data = [])
     ));
 
     if (empty($userIds)) {
-        error_log("[send_to_many][SKIP] Sin usuarios válidos type={$type}");
+        error_log("[send_to_many][SKIP] Sin usuarios vÃ¡lidos type={$type}");
         return;
     }
 
-    // Payload base común para todos los eventos
+    // Payload base comÃºn para todos los eventos
     $basePayload = [
         "type"      => $type,
         "timestamp" => date('c'), // ISO-8601
@@ -37,7 +40,8 @@ function sendNotificationToMany(array $userIds, string $type, array $data = [])
 
         $jsonPayload = json_encode($payload, JSON_UNESCAPED_UNICODE);
 
-        $ch = curl_init("http://172.93.49.94/api/prepsaber/backend/send_notification.php");
+        // âœ… FASE 4: URL centralizada en includes/config.php
+        $ch = curl_init(getBackendFileUrl('send_notification.php'));
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => $jsonPayload,

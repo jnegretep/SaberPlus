@@ -6,7 +6,7 @@
 //   - ✅ initialLocation prioriza auth.token sobre isFirstTime
 //   - ✅ Redirect también aplica a /welcome cuando el usuario ya está logueado
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode; // <-- CORREGIDO
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,6 +14,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_downloader/flutter_downloader.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'config/env.dart';
@@ -22,7 +23,10 @@ import 'core/theme/app_theme.dart';
 import 'core/utils/app_logger.dart';
 import 'core/constants/app_constants.dart';
 import 'core/services/cache_service.dart';
+import 'core/services/course_cache_service.dart';
 import 'core/services/dio_client.dart';
+import 'core/services/video_download_service.dart';
+import 'core/services/pdf_cache_service.dart';
 import 'services/auth_service.dart';
 import 'services/api_service.dart';
 import 'services/teacher_service.dart';
@@ -38,6 +42,18 @@ import 'services/plan_service.dart';
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   AppLogger.i('Notificación en background: ${message.messageId}');
+}
+
+// ── Flutter Downloader Callback (FASE 4.3) ──
+// Debe ser top-level o static con @pragma('vm:entry-point')
+// Se llama desde el isolate de background cuando hay progreso de descarga.
+@pragma('vm:entry-point')
+void _videoDownloadCallback(
+  String id,
+  int status,
+  int progress,
+) {
+  VideoDownloadService.downloadCallback(id, status, progress);
 }
 
 Future<void> main() async {
@@ -80,6 +96,16 @@ Future<void> main() async {
 
   // ✅ Inicializar caché (usa SharedPreferences internamente)
   await CacheService.init();
+  // ✅ FASE 4: Inicializar caché de cursos (offline-first)
+  await CourseCacheService.init();
+  // ✅ FASE 4.3: Inicializar servicio de descarga de videos (offline)
+  await FlutterDownloader.initialize(debug: kDebugMode); // <-- AHORA FUNCIONA
+  await VideoDownloadService.init();
+  // Registrar callback de progreso de descargas
+  FlutterDownloader.registerCallback(_videoDownloadCallback);
+
+  // ✅ FASE 4.4: Inicializar servicio de cache de PDFs (offline)
+  await PdfCacheService.init();
 
   // ── AuthService precarga ──
   final authService = AuthService();

@@ -7,6 +7,7 @@ import 'package:photo_view/photo_view_gallery.dart';
 import 'package:percent_indicator/percent_indicator.dart';
 import '../controllers/quiz_controller.dart';
 import '../models/answer_option.dart';
+import '../widgets/math/math_text.dart';
 import 'review_screen.dart';
 import 'dart:async';
 import '../core/theme/app_colors.dart';
@@ -182,94 +183,18 @@ Future<void> _checkAttemptStatus() async {
     return htmlText.replaceAll(exp, '');
   }
 
+/// ✅ FASE 4.2: Renderizado mejorado de texto con ecuaciones matemáticas.
+/// Delega al widget MathText que soporta múltiples formatos:
+/// - LaTeX inline: \( ... \) o $...$
+/// - LaTeX display: \[ ... \] o $$...$$
+/// - MathML: <math>...</math>
+/// - Moodle spans: <span class="math">...</span>
+/// - HTML sub/sup
+/// Con fallback graceful y scroll horizontal para ecuaciones largas.
 Widget _renderHtmlWithMath(String htmlText, {bool isOption = false}) {
-  final widgets = <Widget>[];
-  final regex = RegExp(r'(\\\(.+?\\\)|\\\[.+?\\\])', dotAll: true);
-  final matches = regex.allMatches(htmlText);
-
-  if (matches.isEmpty) {
-    return Html(
-      data: htmlText,
-      style: {
-        "body": Style(
-          margin: Margins.zero,
-          padding: HtmlPaddings.zero,
-          fontSize: FontSize(isOption ? 14.0 : 16.0),
-          lineHeight: LineHeight(isOption ? 1.3 : 1.5),
-          color: AppColors.borderDark,
-        ),
-        "p": Style(margin: Margins.zero, padding: HtmlPaddings.zero),
-      },
-    );
-  }
-
-  int last = 0;
-  for (final match in matches) {
-    // Texto antes de la ecuación
-    if (match.start > last) {
-      final text = htmlText.substring(last, match.start);
-      if (text.trim().isNotEmpty) {
-        widgets.add(Html(
-          data: text,
-          style: {
-            "body": Style(
-              margin: Margins.zero,
-              padding: HtmlPaddings.zero,
-              fontSize: FontSize(isOption ? 14.0 : 16.0),
-              lineHeight: LineHeight(isOption ? 1.3 : 1.5),
-              color: AppColors.borderDark,
-            ),
-          },
-        ));
-      }
-    }
-
-    // La ecuación en sí (SIN CONTENEDOR)
-    final latex = match.group(0)!
-        .replaceAll(r'\(', '')
-        .replaceAll(r'\)', '')
-        .replaceAll(r'\[', '')
-        .replaceAll(r'\]', '');
-
-    widgets.add(
-      Padding(
-        padding: EdgeInsets.symmetric(horizontal: 4, vertical: isOption ? 2 : 4),
-        child: Math.tex(
-          latex,
-          textStyle: TextStyle(
-            fontSize: isOption ? 14 : 16,
-          ),
-        ),
-      ),
-    );
-
-    last = match.end;
-  }
-
-  // Texto después de la última ecuación
-  if (last < htmlText.length) {
-    final text = htmlText.substring(last);
-    if (text.trim().isNotEmpty) {
-      widgets.add(Html(
-        data: text,
-        style: {
-          "body": Style(
-            margin: Margins.zero,
-            padding: HtmlPaddings.zero,
-            fontSize: FontSize(isOption ? 14.0 : 16.0),
-            lineHeight: LineHeight(isOption ? 1.3 : 1.5),
-            color: AppColors.borderDark,
-          ),
-        },
-      ));
-    }
-  }
-
-  return Wrap(
-    crossAxisAlignment: WrapCrossAlignment.center,
-    spacing: 2,
-    runSpacing: 2,
-    children: widgets,
+  return MathText(
+    html: htmlText,
+    isOption: isOption,
   );
 }
 

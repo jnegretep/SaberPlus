@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 // ================================
-// get_course_contents.php ó versiÛn estable con URLs absolutas + cuestionarios
+// get_course_contents.php ¬ó versi√≥n estable con URLs absolutas + cuestionarios
 // ================================
 
 header("Access-Control-Allow-Origin: *");
@@ -16,7 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
-    exit(json_encode(['status'=>'error','msg'=>'MÈtodo no permitido']));
+    exit(json_encode(['status'=>'error','msg'=>'M√©todo no permitido']));
 }
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -27,7 +27,7 @@ $configJwt = require __DIR__ . '/../jwt_config.php';
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 
-// --- AutenticaciÛn JWT ---
+// --- Autenticaci√≥n JWT ---
 $hdrs       = function_exists('getallheaders') ? getallheaders() : [];
 $authHeader = $hdrs['Authorization'] ?? $hdrs['authorization'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? '';
 
@@ -42,14 +42,14 @@ try {
     $moodleUserId = (int)$decoded->data->moodle_userid;
 } catch (Exception $e) {
     http_response_code(401);
-    exit(json_encode(['status'=>'error','msg'=>'Token inv·lido']));
+    exit(json_encode(['status'=>'error','msg'=>'Token inv√°lido']));
 }
 
-// --- Par·metro obligatorio ---
+// --- Par√°metro obligatorio ---
 $courseId = filter_input(INPUT_GET, 'courseid', FILTER_VALIDATE_INT);
 if (!$courseId) {
     http_response_code(400);
-    exit(json_encode(['status'=>'error','msg'=>'Par·metro courseid faltante o inv·lido']));
+    exit(json_encode(['status'=>'error','msg'=>'Par√°metro courseid faltante o inv√°lido']));
 }
 
 // --- Obtener moodle_token del usuario ---
@@ -67,9 +67,8 @@ if (!$row) {
 }
 $moodleToken = $row['moodle_token'];
 
-// --- Definir base URL absoluta manualmente ---
-$base_url = "http://172.93.49.94"; // <<<<<<<<<<<<<< AJUSTA SI CAMBIA TU DOMINIO/IP
-$proxyBase = $base_url . '/api/prepsaber/backend/get_file.php';
+// ‚úÖ FASE 4: URL centralizada en includes/config.php
+$proxyBase = getBackendFileProxyUrl();
 
 try {
     $client = getMoodleClient();
@@ -107,7 +106,7 @@ try {
             }
         }
 
-      // --- Agregar mÛdulos (recursos, p·ginas, cuestionarios, etc.) ---
+      // --- Agregar m√≥dulos (recursos, p√°ginas, cuestionarios, etc.) ---
 if (!empty($section['modules'])) {
     foreach ($section['modules'] as $mod) {
         $modName   = $mod['name'] ?? '';
@@ -127,7 +126,7 @@ if (!empty($section['modules'])) {
 
         $modules[] = [
             'id'       => $modId,
-            'instance' => $modInst,   // ?? aÒade este campo
+            'instance' => $modInst,   // ?? a√±ade este campo
             'name'     => $modName,
             'modname'  => $modType,
             'url'      => $modUrl,

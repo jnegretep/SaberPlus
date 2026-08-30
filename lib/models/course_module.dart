@@ -48,6 +48,18 @@ class CourseModule {
     );
   }
 
+  /// ✅ FASE 4: Serializa a JSON para almacenar en caché offline.
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'modname': modName,
+        'url': url,
+        'instance': instanceId,
+        'timelimit': timelimit,
+        'modtype': type,
+        'contents': contents.map((c) => c.toJson()).toList(),
+      };
+
   bool get isQuiz => modName == 'quiz';
   bool get isVideo =>
       contents.any((c) => c.filename != null && c.filename!.endsWith('.mp4'));

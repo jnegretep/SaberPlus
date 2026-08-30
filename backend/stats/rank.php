@@ -12,7 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
-    $out = json_encode(['status'=>'error','msg'=>'Método no permitido'], JSON_UNESCAPED_UNICODE);
+    $out = json_encode(['status'=>'error','msg'=>'MÃ©todo no permitido'], JSON_UNESCAPED_UNICODE);
     error_log("[rank][OUTPUT] $out");
     echo $out;
     exit;
@@ -75,7 +75,7 @@ try {
 
   $allowedScopes = ['city','dept','school','national'];
   if (!in_array($scope, $allowedScopes, true)) {
-    emit_json_with_logs('rank', ['status'=>'error','msg'=>'Scope inválido']);
+    emit_json_with_logs('rank', ['status'=>'error','msg'=>'Scope invÃ¡lido']);
   }
 
   // 2) Mapear id_usuario interno a moodle_id y datos de contexto
@@ -116,7 +116,7 @@ try {
     } elseif (isset($areaToColumn[$area])) {
       $campoPuntaje = $areaToColumn[$area];
     } else {
-      emit_json_with_logs('rank', ['status'=>'error','msg'=>'Área inválida']);
+      emit_json_with_logs('rank', ['status'=>'error','msg'=>'Ãrea invÃ¡lida']);
     }
   }
 
@@ -200,7 +200,7 @@ try {
   $stmtRank->execute();
   $topRows = $stmtRank->fetchAll(PDO::FETCH_ASSOC);
 
-  // Post-procesar para asegurar tipos numéricos y claves presentes
+  // Post-procesar para asegurar tipos numÃ©ricos y claves presentes
 foreach ($topRows as &$row) {
     // Fuerza promedio a float
     if (isset($row['promedio'])) {
@@ -213,15 +213,15 @@ foreach ($topRows as &$row) {
     $row['nombre'] = $row['nombre'] ?? null;
 
     if (!empty($row['avatar'])) {
-        // Construye URL absoluta al archivo en uploads/avatars
-        $row['avatar'] = "http://172.93.49.94/api/prepsaber/backend/uploads/avatars/" . $row['avatar'];
+        // âœ… FASE 4: URL centralizada en includes/config.php
+        $row['avatar'] = getAvatarUrl($row['avatar']);
     } else {
         $row['avatar'] = null;
     }
 }
 unset($row);
 
-  // 6) Calcular posición del usuario en todo el segmento (no necesita JOIN)
+  // 6) Calcular posiciÃ³n del usuario en todo el segmento (no necesita JOIN)
   $sqlAll = "
     SELECT 
       r.usuario_id, 

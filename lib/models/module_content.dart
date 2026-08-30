@@ -23,5 +23,14 @@ class ModuleContent {
     );
   }
 
+  /// ✅ FASE 4: Serializa a JSON para almacenar en caché offline.
+  Map<String, dynamic> toJson() => {
+        'filename': filename,
+        'fileurl': fileurl,
+        'mimetype': mimetype,
+        'type': type,
+        'content': content,
+      };
+
   static ModuleContent empty() => ModuleContent(content: '');
 }

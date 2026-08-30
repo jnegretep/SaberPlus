@@ -46,6 +46,7 @@ import '../screens/teacher/teacher_stats_screen.dart';
 import '../screens/teacher/teacher_students_screen.dart';
 import '../screens/invitations_screen.dart';
 import '../screens/achievements_screen.dart';
+import '../screens/xp_ranking_screen.dart';
 
 /// Rutas que NO requieren autenticación
 const _publicRoutes = {
@@ -260,6 +261,12 @@ GoRouter buildAppRouter({
       GoRoute(
         path: '/achievements',
         builder: (context, state) => const AchievementsScreen(),
+      ),
+
+      // ── Ranking de XP ──
+      GoRoute(
+        path: '/xp-ranking',
+        builder: (context, state) => const XpRankingScreen(),
       ),
 
       // ── Retos (Challenges) ──

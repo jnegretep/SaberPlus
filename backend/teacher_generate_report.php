@@ -1,5 +1,5 @@
 <?php
-// teacher_generate_report.php - VERSI”N REDISE—ADA
+// teacher_generate_report.php - VERSI√ìN REDISE√ëADA
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
@@ -10,15 +10,16 @@ mb_http_output('UTF-8');
 
 header('Content-Type: application/json');
 
-// Dependencias y conexiÛn
+// Dependencias y conexi√≥n
 require_once __DIR__ . '/vendor/autoload.php';
+require __DIR__ . '/includes/config.php';
 require __DIR__ . '/auth_middleware.php';
 require __DIR__ . '/includes/conexion.php';
 
 use Dompdf\Dompdf;
 use Dompdf\Options;
 
-// AutenticaciÛn
+// Autenticaci√≥n
 $userData = $GLOBALS['authUser'] ?? null;
 if (!$userData || $userData['tipo_usuario'] !== 'profesor') {
     http_response_code(401);
@@ -36,7 +37,7 @@ $anio = $data['anio'] ?? date('Y');
 
 // Validaciones
 if ($simulacroId <= 0) {
-    echo json_encode(['status' => 'error', 'message' => 'simulacro_id inv·lido']);
+    echo json_encode(['status' => 'error', 'message' => 'simulacro_id inv√°lido']);
     exit;
 }
 if (!$colegio) {
@@ -44,11 +45,11 @@ if (!$colegio) {
     exit;
 }
 
-// FunciÛn para limpiar UTF-8
+// Funci√≥n para limpiar UTF-8
 function limpiarTexto($texto) {
     if (!is_string($texto)) return $texto;
     
-    // Reemplazar emojis problem·ticos
+    // Reemplazar emojis problem√°ticos
     $emojis = [
         '??' => '?', '??' => '?', '??' => '??', '??' => '??',
         '??' => '?', '??' => '?', '??' => '??', '??' => '??',
@@ -105,7 +106,7 @@ try {
         }
     }
     
-    // 2. ESTADÕSTICAS PRINCIPALES (CONSULTA ⁄NICA)
+    // 2. ESTAD√çSTICAS PRINCIPALES (CONSULTA √öNICA)
     $query = "
         SELECT 
             COUNT(*) AS total,
@@ -174,9 +175,9 @@ try {
     $fechaFin = $res['fecha_fin'] ? date('d/m/Y H:i', strtotime($res['fecha_fin'])) : '-';
     $fechaGeneracion = date('d/m/Y H:i');
     
-    // Datos por ·rea
+    // Datos por √°rea
     $areas = [
-        'Lectura CrÌtica' => [
+        'Lectura Cr√≠tica' => [
             'promedio' => round((float)$res['lectura'], 1),
             'max' => round((float)$res['lectura_max'], 1),
             'min' => round((float)$res['lectura_min'], 1),
@@ -184,7 +185,7 @@ try {
             'porcentaje' => min(100, round(((float)$res['lectura'] / 500) * 100, 0)),
             'color' => '#3B82F6'
         ],
-        'Matem·ticas' => [
+        'Matem√°ticas' => [
             'promedio' => round((float)$res['matematicas'], 1),
             'max' => round((float)$res['matematicas_max'], 1),
             'min' => round((float)$res['matematicas_min'], 1),
@@ -208,7 +209,7 @@ try {
             'porcentaje' => min(100, round(((float)$res['naturales'] / 500) * 100, 0)),
             'color' => '#EF4444'
         ],
-        'InglÈs' => [
+        'Ingl√©s' => [
             'promedio' => round((float)$res['ingles'], 1),
             'max' => round((float)$res['ingles_max'], 1),
             'min' => round((float)$res['ingles_min'], 1),
@@ -218,7 +219,7 @@ try {
         ]
     ];
     
-    // ¡reas fuertes y dÈbiles
+    // √Åreas fuertes y d√©biles
     uasort($areas, function($a, $b) {
         return $b['porcentaje'] <=> $a['porcentaje'];
     });
@@ -266,7 +267,7 @@ try {
     $rankingStmt->execute($rankingParams);
     $ranking = $rankingStmt->fetchAll(PDO::FETCH_ASSOC);
     
-    // 5. DISTRIBUCI”N POR GRADO
+    // 5. DISTRIBUCI√ìN POR GRADO
     $distQuery = "
         SELECT 
             u.grado,
@@ -297,7 +298,7 @@ try {
     $distStmt->execute($distParams);
     $distribucionGrados = $distStmt->fetchAll(PDO::FETCH_ASSOC);
     
-    // 6. PREPARAR HTML COMPLETO CON DISE—O MEJORADO
+    // 6. PREPARAR HTML COMPLETO CON DISE√ëO MEJORADO
     $nombreSimulacroSafe = limpiarTexto($nombreSimulacro);
     $descripcionSimulacroSafe = limpiarTexto($descripcionSimulacro);
     $colegioSafe = limpiarTexto($colegio);
@@ -343,7 +344,7 @@ try {
         $rankingRows = "<tr><td colspan='8'>No hay ranking disponible</td></tr>";
     }
     
-    // Construir distribuciÛn por grado
+    // Construir distribuci√≥n por grado
     $distRows = '';
     foreach ($distribucionGrados as $d) {
         $gradoText = limpiarTexto($d['grado']);
@@ -358,10 +359,10 @@ try {
     }
     
     if ($distRows === '') {
-        $distRows = "<tr><td colspan='5'>No hay distribuciÛn por grado</td></tr>";
+        $distRows = "<tr><td colspan='5'>No hay distribuci√≥n por grado</td></tr>";
     }
     
-    // HTML COMPLETO CON DISE—O PROFESIONAL
+    // HTML COMPLETO CON DISE√ëO PROFESIONAL
     $html = <<<HTML
 <!DOCTYPE html>
 <html lang='es'>
@@ -427,7 +428,7 @@ try {
             margin-bottom: 4px;
         }
         
-        /* INFORMACI”N DEL SIMULACRO */
+        /* INFORMACI√ìN DEL SIMULACRO */
         .simulacro-info {
             background: #f1f5f9;
             border-radius: 6px;
@@ -458,7 +459,7 @@ try {
             gap: 4px;
         }
         
-        /* ESTADÕSTICAS */
+        /* ESTAD√çSTICAS */
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -552,7 +553,7 @@ try {
         .top-2 { background: #f3f4f6 !important; }
         .top-3 { background: #ecfdf5 !important; }
         
-        /* ¡REAS FUERTES/D…BILES */
+        /* √ÅREAS FUERTES/D√âBILES */
         .areas-container {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -587,7 +588,7 @@ try {
             margin: 2px 0;
         }
         
-        /* PIE DE P¡GINA */
+        /* PIE DE P√ÅGINA */
         .footer {
             margin-top: 15px;
             padding-top: 8px;
@@ -641,18 +642,18 @@ $html .= <<<HTML
         </div>
     </div>
 
-    <!-- INFORMACI”N DEL SIMULACRO -->
+    <!-- INFORMACI√ìN DEL SIMULACRO -->
     <div class="simulacro-info">
         <div class="simulacro-title">?? {$nombreSimulacroSafe}</div>
         <div class="simulacro-meta">
-            <span class="meta-item">?? <strong>AÒo:</strong> {$anio}</span>
+            <span class="meta-item">?? <strong>A√±o:</strong> {$anio}</span>
             <span class="meta-item">?? <strong>Estudiantes:</strong> {$totalEstudiantes}</span>
             <span class="meta-item">?? <strong>Promedio Global:</strong> {$promedioGlobal}</span>
-            <span class="meta-item">?? <strong>PerÌodo:</strong> {$fechaInicio} al {$fechaFin}</span>
+            <span class="meta-item">?? <strong>Per√≠odo:</strong> {$fechaInicio} al {$fechaFin}</span>
         </div>
     </div>
 
-    <!-- ESTADÕSTICAS PRINCIPALES -->
+    <!-- ESTAD√çSTICAS PRINCIPALES -->
     <div class="stats-grid">
         <!-- RESUMEN GENERAL -->
         <div class="stat-card">
@@ -662,8 +663,8 @@ $html .= <<<HTML
                     <tr>
                         <th>Indicador</th>
                         <th>Valor</th>
-                        <th>M·ximo</th>
-                        <th>MÌnimo</th>
+                        <th>M√°ximo</th>
+                        <th>M√≠nimo</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -682,16 +683,16 @@ $html .= <<<HTML
             </table>
         </div>
 
-        <!-- PROMEDIOS POR ¡REA -->
+        <!-- PROMEDIOS POR √ÅREA -->
         <div class="stat-card">
-            <div class="card-title">?? DesempeÒo por ¡rea</div>
+            <div class="card-title">?? Desempe√±o por √Årea</div>
             <table>
                 <thead>
                     <tr>
-                        <th>¡rea</th>
+                        <th>√Årea</th>
                         <th>Promedio</th>
                         <th>% Logro</th>
-                        <th>Gr·fico</th>
+                        <th>Gr√°fico</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -720,13 +721,13 @@ $html .= <<<HTML
         </div>
     </div>
 
-    <!-- AN¡LISIS DE COMPETENCIAS -->
+    <!-- AN√ÅLISIS DE COMPETENCIAS -->
     <div class="stat-card mb-8">
-        <div class="card-title">?? An·lisis de Competencias</div>
+        <div class="card-title">?? An√°lisis de Competencias</div>
         <div class="areas-container">
-            <!-- ¡REAS FUERTES -->
+            <!-- √ÅREAS FUERTES -->
             <div class="area-box area-fuerte">
-                <div class="area-label">? ¡reas Fuertes</div>
+                <div class="area-label">? √Åreas Fuertes</div>
 HTML;
 
 foreach ($areasFuertes as $nombreArea => $data) {
@@ -736,9 +737,9 @@ foreach ($areasFuertes as $nombreArea => $data) {
 $html .= <<<HTML
             </div>
             
-            <!-- ¡REAS A MEJORAR -->
+            <!-- √ÅREAS A MEJORAR -->
             <div class="area-box area-debil">
-                <div class="area-label">?? ¡reas a Mejorar</div>
+                <div class="area-label">?? √Åreas a Mejorar</div>
 HTML;
 
 foreach ($areasDebiles as $nombreArea => $data) {
@@ -760,10 +761,10 @@ $html .= <<<HTML
                     <th>Grado</th>
                     <th>Global</th>
                     <th>Lectura</th>
-                    <th>Matem·ticas</th>
+                    <th>Matem√°ticas</th>
                     <th>Sociales</th>
                     <th>Naturales</th>
-                    <th>InglÈs</th>
+                    <th>Ingl√©s</th>
                 </tr>
             </thead>
             <tbody>
@@ -772,17 +773,17 @@ $html .= <<<HTML
         </table>
     </div>
 
-    <!-- DISTRIBUCI”N POR GRADO -->
+    <!-- DISTRIBUCI√ìN POR GRADO -->
     <div class="stat-card mb-8">
-        <div class="card-title">?? DistribuciÛn por Grado</div>
+        <div class="card-title">?? Distribuci√≥n por Grado</div>
         <table>
             <thead>
                 <tr>
                     <th>Grado</th>
                     <th>Estudiantes</th>
                     <th>Promedio</th>
-                    <th>M·ximo</th>
-                    <th>MÌnimo</th>
+                    <th>M√°ximo</th>
+                    <th>M√≠nimo</th>
                 </tr>
             </thead>
             <tbody>
@@ -793,20 +794,20 @@ $html .= <<<HTML
 
     <!-- RECOMENDACIONES -->
     <div class="stat-card" style="background: #f0f9ff; border-color: #0ea5e9;">
-        <div class="card-title" style="color: #0369a1;">?? Recomendaciones PedagÛgicas</div>
+        <div class="card-title" style="color: #0369a1;">?? Recomendaciones Pedag√≥gicas</div>
         <div style="font-size: 8pt; color: #475569;">
-            <div style="margin-bottom: 4px;"><strong>1. Fortalecer ·reas dÈbiles:</strong> Implementar sesiones de refuerzo especÌficas.</div>
-            <div style="margin-bottom: 4px;"><strong>2. Replicar buenas pr·cticas:</strong> Analizar estrategias de estudiantes destacados.</div>
-            <div style="margin-bottom: 4px;"><strong>3. PlanificaciÛn diferenciada:</strong> DiseÒar actividades por nivel de desempeÒo.</div>
+            <div style="margin-bottom: 4px;"><strong>1. Fortalecer √°reas d√©biles:</strong> Implementar sesiones de refuerzo espec√≠ficas.</div>
+            <div style="margin-bottom: 4px;"><strong>2. Replicar buenas pr√°cticas:</strong> Analizar estrategias de estudiantes destacados.</div>
+            <div style="margin-bottom: 4px;"><strong>3. Planificaci√≥n diferenciada:</strong> Dise√±ar actividades por nivel de desempe√±o.</div>
             <div><strong>4. Seguimiento individual:</strong> Monitoreo personalizado para estudiantes con dificultades.</div>
         </div>
     </div>
 
-    <!-- PIE DE P¡GINA -->
+    <!-- PIE DE P√ÅGINA -->
     <div class="footer">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div>Generado por <strong>SaberPlus</strong> ï Sistema de GestiÛn Educativa</div>
-            <div>P·gina <span class="page-number"></span> ï {$fechaGeneracion}</div>
+            <div>Generado por <strong>SaberPlus</strong> ¬ï Sistema de Gesti√≥n Educativa</div>
+            <div>P√°gina <span class="page-number"></span> ¬ï {$fechaGeneracion}</div>
         </div>
     </div>
 
@@ -840,7 +841,7 @@ HTML;
     if (file_put_contents($filePath, $output)) {
         echo json_encode([
             'status' => 'success',
-            'download_url' => "http://172.93.49.94/api/prepsaber/backend/reports/" . $fileName,
+            'download_url' => getBackendFileUrl('reports/' . $fileName),
             'file_name' => $fileName,
             'metadata' => [
                 'simulacro_nombre' => $nombreSimulacro,

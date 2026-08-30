@@ -1,0 +1,51 @@
+# TRAZA - Apache .htaccess
+# Reescritura de URLs y seguridad
+
+RewriteEngine On
+
+# Redirigir a HTTPS (descomentar en producción)
+# RewriteCond %{HTTPS} off
+# RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# API routing: /api/xxx -> /api/xxx.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^api/(.*)$ api/$1.php [QSA,L]
+
+# Servir archivos de uploads directamente
+RewriteCond %{REQUEST_URI} ^/uploads/
+RewriteRule ^uploads/(.*)$ uploads/$1 [L]
+
+# Seguridad: bloquear acceso a archivos sensibles
+<FilesMatch "\.(php|sql|env|log|md)$">
+    # Permitir solo api/
+    RewriteCond %{REQUEST_URI} !^/api/
+    RewriteRule ^ - [F]
+</FilesMatch>
+
+# No listar directorios
+Options -Indexes
+
+# CORS headers para Flutter Web
+<IfModule mod_headers.c>
+    Header set Access-Control-Allow-Origin "*"
+    Header set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+    Header set Access-Control-Allow-Headers "Content-Type, Authorization"
+</IfModule>
+
+# Cache de imágenes subidas (1 semana)
+<IfModule mod_expires.c>
+    ExpiresActive On
+    <Directory "uploads">
+        ExpiresByType image/jpeg "access plus 1 week"
+        ExpiresByType image/png "access plus 1 week"
+        ExpiresByType image/webp "access plus 1 week"
+    </Directory>
+</IfModule>
+
+# PHP settings
+<IfModule mod_php.c>
+    php_value upload_max_filesize 10M
+    php_value post_max_size 12M
+    php_value max_execution_time 60
+</IfModule>

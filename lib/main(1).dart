@@ -1,11 +1,10 @@
 // lib/main.dart
-// Saber+ — Entry point v1.5.0
-// Cambios vs v1.4.1:
-//   - GoRouter para navegación type-safe con auth guards
-//   - flutter_dotenv para config segura
-//   - Material 3 theme (AppTheme)
-//   - AppLogger reemplaza print()
-//   - Firebase keys desde .env
+// Saber+ — Entry point v1.5.1
+// Cambios vs v1.5.0:
+//   - ✅ FIX #1+#3: GoRouter estable — creado UNA sola vez en initState()
+//     ya no se recrea en cada rebuild (causaba reset a /welcome tras login)
+//   - ✅ initialLocation prioriza auth.token sobre isFirstTime
+//   - ✅ Redirect también aplica a /welcome cuando el usuario ya está logueado
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -14,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 import 'config/env.dart';
@@ -21,10 +21,13 @@ import 'config/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/utils/app_logger.dart';
 import 'core/constants/app_constants.dart';
+import 'core/services/cache_service.dart';
+import 'core/services/dio_client.dart';
 import 'services/auth_service.dart';
 import 'services/api_service.dart';
 import 'services/teacher_service.dart';
 import 'providers/dashboard_provider.dart';
+import 'providers/gamification_provider.dart';
 import 'providers/notification_provider.dart';
 import 'providers/theme_provider.dart';
 import 'services/notifications_api.dart';
@@ -75,9 +78,19 @@ Future<void> main() async {
     await prefs.setBool(AppConstants.keyFirstTime, false);
   }
 
+  // ✅ Inicializar caché (usa SharedPreferences internamente)
+  await CacheService.init();
+
   // ── AuthService precarga ──
   final authService = AuthService();
   await authService.loadFromStorage();
+
+  // ✅ FASE 1.3: Configurar callback de sesión expirada para DioClient
+  // Cuando el refresh token también expira, el interceptor fuerza el logout
+  DioClient.onSessionExpired = () async {
+    AppLogger.w('Sesión expirada (DioClient callback) — forzando logout');
+    await authService.logout();
+  };
 
   // ── Theme Provider ──
   final themeProvider = ThemeProvider();
@@ -101,6 +114,10 @@ Future<void> main() async {
           create: (context) => DashboardProvider(context.read<ApiService>()),
           update: (context, api, dashboard) => dashboard ?? DashboardProvider(api),
         ),
+        // ✅ FASE 3: GamificationProvider (XP, niveles, rachas, badges)
+        ChangeNotifierProvider<GamificationProvider>(
+          create: (_) => GamificationProvider(),
+        ),
       ],
       child: MyApp(isFirstTime: isFirstTime),
     ),
@@ -119,11 +136,85 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   bool _fcmInitialized = false;
+  bool _gamifLoaded = false;
+
+  // ✅ FIX: Router creado UNA sola vez — ya no se recrea en cada rebuild
+  late final GoRouter _router;
 
   @override
   void initState() {
     super.initState();
     _initFCM();
+    _initRouter();
+
+    // ✅ FASE 3: Escuchar cambios de auth para cargar gamificación al hacer login
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final auth = context.read<AuthService>();
+      auth.addListener(_onAuthChanged);
+      // Cargar gamificación si ya hay sesión al iniciar
+      _maybeLoadGamification();
+    });
+  }
+
+  @override
+  void dispose() {
+    // Limpiar listener para evitar memory leaks
+    try {
+      final auth = context.read<AuthService>();
+      auth.removeListener(_onAuthChanged);
+    } catch (_) {}
+    super.dispose();
+  }
+
+  void _onAuthChanged() {
+    _maybeLoadGamification();
+  }
+
+  /// ✅ FASE 3: Carga el estado de gamificación cuando hay sesión activa.
+  void _maybeLoadGamification() {
+    try {
+      final auth = context.read<AuthService>();
+      final gamif = context.read<GamificationProvider>();
+
+      if (auth.token != null && auth.userId != null && !_gamifLoaded) {
+        _gamifLoaded = true;
+        gamif.loadStatus();
+      } else if (auth.token == null && _gamifLoaded) {
+        // Sesión cerrada: resetear
+        _gamifLoaded = false;
+        gamif.clear();
+      }
+    } catch (_) {
+      // provider puede no estar disponible si el árbol cambió
+    }
+  }
+
+  void _initRouter() {
+    final auth = context.read<AuthService>();
+    final api = context.read<ApiService>();
+
+    // ✅ FIX #1: Priorizar auth sobre isFirstTime
+    // Si el usuario ya tiene token válido → dashboard
+    // Si no, pero ya vio el onboarding → login
+    // Si es primera vez → welcome (onboarding)
+    final String initialLocation;
+    if (auth.token != null && auth.userId != null) {
+      initialLocation = auth.isProfesor ? '/teacher' : '/dashboard';
+    } else if (widget.isFirstTime) {
+      initialLocation = '/welcome';
+    } else {
+      initialLocation = '/login';
+    }
+
+    _router = buildAppRouter(
+      auth: auth,
+      api: api,
+      initialLocation: initialLocation,
+    );
+
+    AppLogger.d('Router inicializado en: $initialLocation '
+        '(token=${auth.token != null}, userId=${auth.userId}, '
+        'isFirstTime=${widget.isFirstTime})');
   }
 
   Future<void> _initFCM() async {
@@ -146,19 +237,6 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthService>();
-    final api = context.read<ApiService>();
-
-    // Determinar ruta inicial basada en auth state
-    final initialLocation = widget.isFirstTime
-        ? '/welcome'
-        : (auth.token != null ? '/dashboard' : '/login');
-
-    final router = buildAppRouter(
-      auth: auth,
-      api: api,
-      initialLocation: initialLocation,
-    );
-
     final themeProvider = context.watch<ThemeProvider>();
 
     Widget app = MaterialApp.router(
@@ -167,7 +245,7 @@ class _MyAppState extends State<MyApp> {
       darkTheme: AppTheme.dark,
       themeMode: themeProvider.themeMode,
       debugShowCheckedModeBanner: false,
-      routerConfig: router,
+      routerConfig: _router,
     );
 
     // NotificationProvider solo si el usuario está autenticado

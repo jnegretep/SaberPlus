@@ -1,9 +1,17 @@
 <?php
-// URL de tu endpoint de WS en Moodle
-define('MOODLE_WS_URL',  'http://tu-moodle.edu.co/webservice/rest/server.php');
+// /var/www/html/api/prepsaber/backend/moodle/config.php
+// ✅ FASE 4: URLs centralizadas en includes/config.php
+// Este archivo se mantiene por compatibilidad con código antiguo.
+// Las constantes se definen en includes/config.php
 
-// Token generado en Moodle para este WS user
-define('MOODLE_WS_TOKEN','a1b2c3d4e5f6g7h8i9j0');
+require_once __DIR__ . '/../includes/config.php';
+
+// URL del endpoint REST de Moodle (compatibilidad)
+if (!defined('MOODLE_WS_URL')) {
+    define('MOODLE_WS_URL', getMoodleWsUrl());
+}
 
 // Formato de respuesta (json)
-define('MOODLE_WS_FORMAT','json');
+if (!defined('MOODLE_WS_FORMAT_LOCAL')) {
+    define('MOODLE_WS_FORMAT_LOCAL', 'json');
+}

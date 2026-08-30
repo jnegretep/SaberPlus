@@ -150,6 +150,9 @@ class Nav {
   // ── Logros / Achievements ──
   static void goAchievements(BuildContext context) => context.push('/achievements');
 
+  // ── Ranking de XP ──
+  static void goXpRanking(BuildContext context) => context.push('/xp-ranking');
+
   // ── Retos ──
   static void goChallenges(BuildContext context) => context.push('/challenges');
   static void goCreateChallenge(BuildContext context) => context.push('/challenges/create');

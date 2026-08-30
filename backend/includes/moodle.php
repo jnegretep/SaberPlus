@@ -1,35 +1,26 @@
 <?php
 // /var/www/html/api/prepsaber/backend/includes/moodle.php
 
+require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/../moodle/MoodleClient.php';
 
 /**
- * Configuraci�n de Moodle
+ * Configuración de Moodle
+ * 
+ * Las URLs y tokens ahora se definen en includes/config.php
+ * Este archivo mantiene compatibilidad con código existente que usa
+ * las constantes MOODLE_BASE_URL, MOODLE_WS_ENDPOINT, MOODLE_WS_TOKEN.
  */
-$baseUrl    = 'http://172.93.49.94/preicfes';
-$wsEndpoint = '/webservice/rest/server.php';
-$wsToken    = '37663518c05c753401b5fa535ceb7316';
 
-// Validaciones
-if (!is_string($baseUrl) || trim($baseUrl) === '') {
-    error_log('[MOODLE_CONFIG] baseUrl inv�lido');
+// Las constantes ya están definidas en config.php, pero las validamos
+if (!is_string(MOODLE_BASE_URL) || trim(MOODLE_BASE_URL) === '') {
+    error_log('[MOODLE_CONFIG] MOODLE_BASE_URL inválido');
 }
-if (!is_string($wsEndpoint) || trim($wsEndpoint) === '') {
-    error_log('[MOODLE_CONFIG] wsEndpoint inv�lido');
+if (!is_string(MOODLE_WS_ENDPOINT) || trim(MOODLE_WS_ENDPOINT) === '') {
+    error_log('[MOODLE_CONFIG] MOODLE_WS_ENDPOINT inválido');
 }
-if (!is_string($wsToken) || trim($wsToken) === '') {
-    error_log('[MOODLE_CONFIG] wsToken inv�lido');
-}
-
-// Constantes (por compatibilidad)
-if (!defined('MOODLE_BASE_URL')) {
-    define('MOODLE_BASE_URL', $baseUrl);
-}
-if (!defined('MOODLE_WS_ENDPOINT')) {
-    define('MOODLE_WS_ENDPOINT', $wsEndpoint);
-}
-if (!defined('MOODLE_WS_TOKEN')) {
-    define('MOODLE_WS_TOKEN', $wsToken);
+if (!is_string(MOODLE_WS_TOKEN) || trim(MOODLE_WS_TOKEN) === '') {
+    error_log('[MOODLE_CONFIG] MOODLE_WS_TOKEN inválido');
 }
 
 /**
@@ -38,16 +29,15 @@ if (!defined('MOODLE_WS_TOKEN')) {
 if (!function_exists('getMoodleClient')) {
     function getMoodleClient(): MoodleClient
     {
-        $endpoint = rtrim(MOODLE_BASE_URL, '/') . MOODLE_WS_ENDPOINT;
-        return new MoodleClient($endpoint, 'json');
+        return new MoodleClient(getMoodleWsUrl(), MOODLE_WS_FORMAT);
     }
 }
 
 /**
- * Retorno estructurado para scripts que requieren configuraci�n
+ * Retorno estructurado para scripts que requieren configuración
  */
 return [
-    'base_url'   => $baseUrl,
-    'ws_endpoint'=> $wsEndpoint,
-    'ws_token'   => $wsToken
+    'base_url'    => MOODLE_BASE_URL,
+    'ws_endpoint' => MOODLE_WS_ENDPOINT,
+    'ws_token'    => MOODLE_WS_TOKEN
 ];

@@ -12,7 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
-    exit(json_encode(['status' => 'error', 'msg' => 'Método no permitido']));
+    exit(json_encode(['status' => 'error', 'msg' => 'MÃ©todo no permitido']));
 }
 
 require __DIR__ . '/../vendor/autoload.php';
@@ -116,7 +116,7 @@ function process_saved_responses(array $questions): array {
     return $savedResponses;
 }
 
-// ================== ?? NUEVA FUNCIÓN: OBTENER QUESTIONID REAL DESDE question_attempts ==================
+// ================== ?? NUEVA FUNCIÃ“N: OBTENER QUESTIONID REAL DESDE question_attempts ==================
 function resolveRealQuestionIds(int $uniqueId): array {
     $moodleDB = getMoodleDBConnection();
     if (!$moodleDB) {
@@ -178,13 +178,13 @@ try {
     $moodleUserId = (int)$decoded->data->moodle_userid;
 } catch (Exception $e) {
     http_response_code(401);
-    exit(json_encode(['status' => 'error', 'msg' => 'Token inválido']));
+    exit(json_encode(['status' => 'error', 'msg' => 'Token invÃ¡lido']));
 }
 
 $attemptId = filter_input(INPUT_GET, 'attemptid', FILTER_VALIDATE_INT);
 if (!$attemptId) {
     http_response_code(400);
-    exit(json_encode(['status' => 'error', 'msg' => 'Falta parámetro attemptid']));
+    exit(json_encode(['status' => 'error', 'msg' => 'Falta parÃ¡metro attemptid']));
 }
 
 $stmt = $conexion->prepare("SELECT moodle_token FROM usuarios WHERE moodle_id = :mid LIMIT 1");
@@ -196,8 +196,8 @@ if (!$row) {
 }
 $moodleToken = $row['moodle_token'];
 
-$base_url  = "http://172.93.49.94";
-$proxyBase = $base_url . '/api/prepsaber/backend/get_file.php';
+// âœ… FASE 4: URL centralizada en includes/config.php
+$proxyBase = getBackendFileProxyUrl();
 
 try {
     $client = getMoodleClient();
@@ -224,7 +224,7 @@ try {
     $savedResponses = [];
 
     if ($reviewMode) {
-        // Modo revisión: 'id' es questionid
+        // Modo revisiÃ³n: 'id' es questionid
         $questions = $firstPage['questions'] ?? [];
         foreach ($questions as &$q) {
             $q['questionid'] = $q['id'] ?? 0;
@@ -263,7 +263,7 @@ try {
         throw new Exception('Layout no disponible');
     }
 
-    // ?? CORRECCIÓN: obtener uniqueid y resolver questionid reales
+    // ?? CORRECCIÃ“N: obtener uniqueid y resolver questionid reales
     $uniqueId = (int)($attemptInfo['uniqueid'] ?? 0);
     if (!$uniqueId) {
         throw new Exception('No se pudo obtener uniqueid del intento');
@@ -298,7 +298,7 @@ try {
     $pagesSeparatorCount = substr_count(',' . $layout . ',', ',0,');
     $totalPages = max(1, $pagesSeparatorCount);
 
-    // Recorrer todas las páginas y recolectar preguntas
+    // Recorrer todas las pÃ¡ginas y recolectar preguntas
     $allQuestions = [];
     for ($page = 0; $page < $totalPages; $page++) {
         if ($page == 0) {
@@ -320,7 +320,7 @@ try {
     $savedResponses = process_saved_responses($allQuestions);
     $questionIds = array_column($allQuestions, 'questionid');
     
-    // Debug: logear los questionids que se usarán para buscar etiquetas
+    // Debug: logear los questionids que se usarÃ¡n para buscar etiquetas
     error_log("[DEBUG] QUESTION IDs (muestra): " . json_encode(array_slice($questionIds, 0, 5)));
     
     $tagsMap = fetchTagsFromDB($questionIds);
@@ -329,7 +329,7 @@ try {
         $q['tags'] = $tagsMap[$qid] ?? [];
     }
 
-    // Log de cuántas preguntas tienen etiquetas
+    // Log de cuÃ¡ntas preguntas tienen etiquetas
     $numWithTags = 0;
     foreach ($tagsMap as $tags) {
         if (!empty($tags)) $numWithTags++;

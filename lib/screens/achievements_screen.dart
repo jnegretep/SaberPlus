@@ -8,13 +8,14 @@
 // - Badges bloqueados muestran progreso hacia desbloquearlos
 // - Badges secretos se muestran como "???" hasta desbloquearlos
 
-import 'package:flutter/material.dart' hide Badge; // <-- SOLUCIÓN: ocultamos Badge de Material
+import 'package:flutter/material.dart' hide Badge; // <-- SOLUCIÓN
 import 'package:provider/provider.dart';
 import '../core/theme/app_colors.dart';
 import '../core/animations/app_animations.dart';
 import '../core/animations/shimmer_loading.dart';
 import '../providers/gamification_provider.dart';
 import '../models/gamification_state.dart';
+import '../config/navigation.dart';
 import '../widgets/gamification/xp_bar.dart';
 import '../widgets/gamification/streak_indicator.dart';
 
@@ -138,6 +139,13 @@ class _AchievementsScreenState extends State<AchievementsScreen>
                 color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary,
               ),
             ),
+          ),
+          // ✅ Botón de Ranking de XP
+          IconButton(
+            icon: const Icon(Icons.leaderboard_rounded),
+            onPressed: () => Nav.goXpRanking(context),
+            tooltip: 'Ranking de XP',
+            color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary,
           ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),

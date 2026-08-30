@@ -30,10 +30,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/vendor/autoload.php';
 require __DIR__ . '/includes/conexion.php';
-require __DIR__ . '/jwt_config.php';
-
-use Firebase\JWT\JWT;
-use Firebase\JWT\Key;
+require __DIR__ . '/auth_middleware.php';
 
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
@@ -50,25 +47,22 @@ if (!in_array($_SERVER['REQUEST_METHOD'], ['POST', 'GET'])) {
     exit(json_encode(['status' => 'error', 'msg' => 'Método no permitido']));
 }
 
-// ── Autenticación JWT ──
-$hdrs = function_exists('getallheaders') ? getallheaders() : [];
-$authHeader = $hdrs['Authorization'] ?? $hdrs['authorization'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+// ── Usuario autenticado por auth_middleware.php ──
+$user_id = (int)($authUser['id_usuario'] ?? 0);
 
-if (!preg_match('/Bearer\s+(\S+)/', $authHeader, $m)) {
-    http_response_code(401);
-    exit(json_encode(['status' => 'error', 'msg' => 'No autorizado']));
+if ($user_id <= 0) {
+    $user_id = (int)($authUser['moodle_userid'] ?? 0);
 }
 
-try {
-    $decoded = JWT::decode($m[1], new Key($configJwt['secret'], 'HS256'));
-    $user_id = (int)($decoded->data->id_usuario ?? 0);
-    if ($user_id <= 0) {
-        $user_id = (int)($decoded->data->moodle_userid ?? 0);
-    }
-} catch (Exception $e) {
+if ($user_id <= 0) {
     http_response_code(401);
-    exit(json_encode(['status' => 'error', 'msg' => 'Token inválido']));
+    exit(json_encode([
+        'status' => 'error',
+        'msg' => 'Usuario no válido'
+    ]));
 }
+
+error_log("[GAMIFICATION_RANKING] Usuario autenticado: ID=" . $user_id);
 
 // ── Leer parámetros ──
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -86,12 +80,17 @@ if (!in_array($period, $valid_periods)) {
     exit(json_encode(['status' => 'error', 'msg' => 'period no válido (usar: all_time, weekly, monthly)']));
 }
 
-$limit = max(1, min(200, $limit));  // entre 1 y 200
+// ── IMPORTANTE: sanitizar $limit como int ──
+// Lo forzamos a int y lo limitamos al rango [1, 200] para poder inlinerlo
+// en el SQL sin riesgo de SQL injection (PDO emulado convierte el placeholder
+// LIMIT ? a string '50' y MySQL lo rechaza — conocido bug/limitación).
+$limit = max(1, min(200, (int)$limit));
 
 try {
     // ── Construir query según período ──
     if ($period === 'all_time') {
         // Ranking por XP total
+        // OJO: $limit ya está sanitizado como int → seguro inlinerlo en el SQL
         $sql = "
             SELECT ug.user_id, u.nombre, u.avatar_path, u.colegio, u.ciudad,
                    ug.total_xp as xp, ug.current_level as level
@@ -99,10 +98,10 @@ try {
             JOIN usuarios u ON ug.user_id = u.id_usuario
             WHERE ug.total_xp > 0
             ORDER BY ug.total_xp DESC
-            LIMIT ?
+            LIMIT {$limit}
         ";
         $stmt = $conexion->prepare($sql);
-        $stmt->execute([$limit]);
+        $stmt->execute();
         $ranking = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Contar total de usuarios con XP > 0
@@ -110,6 +109,7 @@ try {
 
     } else {
         // Ranking por XP ganada en el período (weekly/monthly)
+        // $days es un literal int → seguro
         $days = $period === 'weekly' ? 7 : 30;
         $sql = "
             SELECT xt.user_id as user_id,
@@ -119,21 +119,21 @@ try {
             FROM xp_transactions xt
             JOIN usuarios u ON xt.user_id = u.id_usuario
             JOIN user_gamification ug ON xt.user_id = ug.user_id
-            WHERE xt.created_at >= DATE_SUB(NOW(), INTERVAL $days DAY)
+            WHERE xt.created_at >= DATE_SUB(NOW(), INTERVAL {$days} DAY)
               AND xt.xp_amount > 0
             GROUP BY xt.user_id, u.nombre, u.avatar_path, u.colegio, u.ciudad, ug.total_xp
             ORDER BY xp DESC
-            LIMIT ?
+            LIMIT {$limit}
         ";
         $stmt = $conexion->prepare($sql);
-        $stmt->execute([$limit]);
+        $stmt->execute();
         $ranking = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Contar usuarios activos en el período
         $stmt = $conexion->prepare("
             SELECT COUNT(DISTINCT user_id)
             FROM xp_transactions
-            WHERE created_at >= DATE_SUB(NOW(), INTERVAL $days DAY) AND xp_amount > 0
+            WHERE created_at >= DATE_SUB(NOW(), INTERVAL {$days} DAY) AND xp_amount > 0
         ");
         $stmt->execute();
         $total_users = (int)$stmt->fetchColumn();
@@ -180,13 +180,13 @@ try {
                 FROM (
                     SELECT user_id, SUM(xp_amount) as total
                     FROM xp_transactions
-                    WHERE created_at >= DATE_SUB(NOW(), INTERVAL $days DAY) AND xp_amount > 0
+                    WHERE created_at >= DATE_SUB(NOW(), INTERVAL {$days} DAY) AND xp_amount > 0
                     GROUP BY user_id
                 ) as t
                 WHERE t.total > (
                     SELECT COALESCE(SUM(xp_amount), 0)
                     FROM xp_transactions
-                    WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL $days DAY) AND xp_amount > 0
+                    WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL {$days} DAY) AND xp_amount > 0
                 )
             ");
             $stmt->execute([$user_id]);
@@ -205,11 +205,75 @@ try {
     ], JSON_UNESCAPED_UNICODE);
 
 } catch (Throwable $e) {
-    error_log("[RANKING] Error: " . $e->getMessage());
+
+    // ============================================================
+    // LOG DETALLADO DEL ERROR 500
+    // ============================================================
+
+    $errorMessage = $e->getMessage();
+    $errorFile    = $e->getFile();
+    $errorLine    = $e->getLine();
+    $errorClass   = get_class($e);
+
+    // Información adicional de la petición
+    $requestMethod = $_SERVER['REQUEST_METHOD'] ?? 'UNKNOWN';
+    $requestUri    = $_SERVER['REQUEST_URI'] ?? 'UNKNOWN';
+
+    // Usuario autenticado, si llegó a identificarse antes del error
+    $debugUserId = isset($user_id) ? $user_id : 'NO_DEFINIDO';
+
+    // Construimos un mensaje muy claro para Apache/PHP
+    $logMessage =
+        "\n\n"
+        . "============================================================\n"
+        . "[GAMIFICATION_RANKING] ERROR HTTP 500\n"
+        . "============================================================\n"
+        . "FECHA/HORA : " . date('Y-m-d H:i:s') . "\n"
+        . "MÉTODO     : " . $requestMethod . "\n"
+        . "URI        : " . $requestUri . "\n"
+        . "PERIODO    : " . (isset($period) ? $period : 'NO_DEFINIDO') . "\n"
+        . "LIMIT      : " . (isset($limit) ? $limit : 'NO_DEFINIDO') . "\n"
+        . "USER ID    : " . $debugUserId . "\n"
+        . "TIPO ERROR : " . $errorClass . "\n"
+        . "MENSAJE    : " . $errorMessage . "\n"
+        . "ARCHIVO    : " . $errorFile . "\n"
+        . "LÍNEA      : " . $errorLine . "\n"
+        . "============================================================\n";
+
+    // Si existe una excepción anterior, también la mostramos
+    if ($e->getPrevious() !== null) {
+        $previous = $e->getPrevious();
+
+        $logMessage .=
+            "ERROR ANTERIOR:\n"
+            . "TIPO       : " . get_class($previous) . "\n"
+            . "MENSAJE    : " . $previous->getMessage() . "\n"
+            . "ARCHIVO    : " . $previous->getFile() . "\n"
+            . "LÍNEA      : " . $previous->getLine() . "\n"
+            . "============================================================\n";
+    }
+
+    // Stack trace completo
+    $logMessage .=
+        "STACK TRACE:\n"
+        . $e->getTraceAsString() . "\n"
+        . "============================================================\n\n";
+
+    // Enviar todo al log de PHP/Apache
+    error_log($logMessage);
+
+    // Respuesta HTTP 500
     http_response_code(500);
-    exit(json_encode([
-        'status' => 'error',
-        'msg' => 'Error obteniendo ranking',
-        'debug' => $e->getMessage(),
-    ]));
+
+    header('Content-Type: application/json; charset=utf-8');
+
+    echo json_encode([
+        'status'  => 'error',
+        'message' => 'Error interno en gamification_ranking.php',
+        'error'   => $errorMessage,
+        'file'    => basename($errorFile),
+        'line'    => $errorLine,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    exit;
 }
