@@ -13,7 +13,6 @@ import '../widgets/dashboard/horizontal_preview_list.dart';
 import '../widgets/dashboard/preview_card.dart';
 import '../widgets/dashboard/section_header.dart';
 import '../widgets/dashboard/section_card.dart';
-import '../widgets/dashboard/continue_learning_card.dart';
 import 'course_list_screen.dart';
 import 'challenge_list_screen.dart';
 import '../widgets/global_scaffold.dart';
@@ -244,11 +243,6 @@ class _DashboardScreenState extends State<DashboardScreen>
 
                                 const SizedBox(height: 24),
 
-                                // Continua donde quedaste
-                                const ContinueLearningCard(),
-
-                                const SizedBox(height: 24),
-
                                 // 🔹 PROGRESO
                                 if (dashboard.summary != null)
                                   ProgressCard(
@@ -261,11 +255,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                                   )
                                 else
                                   const SizedBox(height: 120),
-
-                                const SizedBox(height: 24),
-
-                                // ✅ FASE 5: Retos Diarios — banner destacado
-                                _buildDailyChallengeBanner(),
 
                                 const SizedBox(height: 24),
 
@@ -445,101 +434,6 @@ class _DashboardScreenState extends State<DashboardScreen>
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  /// ✅ FASE 5: Banner de Retos Diarios en el dashboard.
-  /// Muestra un CTA prominente para que el usuario vaya a los retos diarios.
-  Widget _buildDailyChallengeBanner() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return GestureDetector(
-      onTap: () => Nav.goDailyChallenges(context),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF6366F1).withOpacity(0.3),
-              blurRadius: 12,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: const Icon(
-                Icons.flash_on_rounded,
-                color: Colors.white,
-                size: 26,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Retos Diarios',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '¡Completa los retos de hoy y gana XP!',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.white.withOpacity(0.9),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.arrow_forward_rounded,
-                    size: 16,
-                    color: const Color(0xFF6366F1),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Ver retos',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF6366F1),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
         ),
       ),
     );

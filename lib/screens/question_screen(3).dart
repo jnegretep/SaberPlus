@@ -116,17 +116,13 @@ Future<void> _checkAttemptStatus() async {
     // Si timefinish > 0, está en modo revisión, o el tiempo expiró, redirigir a review
       if (timefinish > 0 || reviewMode || timeExpired) {
       debugPrint("[CHECK_STATUS] Redirigiendo a review. timefinish: $timefinish, reviewMode: $reviewMode, timeExpired: $timeExpired");
-
-      // ✅ FIX #7: evitar doble navegación si ya se navegó al review
-      if (_navigatedToReview) return;
-      _navigatedToReview = true;
-
+      
       // Obtener datos de revisión
       final reviewData = c.reviewData ?? await c.api.reviewAttempt(c.attempt!.id);
-
+      
       if (!mounted) return;
-
-      // Redirigir directamente a review screen (reemplaza el cuestionario)
+      
+      // Redirigir directamente a review screen
       Navigator.pushReplacement(
   context,
   MaterialPageRoute(
@@ -290,28 +286,24 @@ Future<void> _navigateTo(int index) async {
   _syncTabWithPage();
 }
 
-/// ✅ FIX #8 + FIX #7: Finalización optimizada del intento.
+/// ✅ FIX #8: Finalización optimizada del intento.
 ///
-/// Cambios clave:
-/// - Usa `Navigator.pushReplacement` en vez de `Navigator.push` para que al
-///   cerrar el ReviewScreen NO vuelva al cuestionario (bug #7).
+/// Antes: hacía `fetchAttemptData` para verificar si ya estaba cerrado
+/// (redundante porque el timer de 30s ya lo hace) → 1-2s extra.
+///
+/// Ahora:
 /// - Si el controller ya sabe que está finalizado, va directo a review.
 /// - Si no, hace flush + finish en background mostrando un diálogo de progreso.
-/// - Flag `_navigatedToReview` evita doble navegación.
 Future<void> _finishFlow() async {
   final c = widget.controller;
   if (_isSubmitting) return;
-  if (_navigatedToReview) return; // ✅ FIX #7: evitar doble navegación
 
   setState(() => _isSubmitting = true);
 
   // Caso A: el intento ya está cerrado (detectado por el timer de 30s)
   if (c.isFinished && c.reviewData != null) {
     if (!mounted) return;
-    _navigatedToReview = true;
-    // ✅ FIX #7: pushReplacement reemplaza el cuestionario por el review
-    // Al cerrar el review, NO vuelve al cuestionario, va al dashboard.
-    await Navigator.pushReplacement(
+    await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => ReviewScreen(
@@ -321,6 +313,7 @@ Future<void> _finishFlow() async {
         ),
       ),
     );
+    if (mounted) Navigator.pop(context, true);
     if (mounted) setState(() => _isSubmitting = false);
     return;
   }
@@ -377,9 +370,7 @@ Future<void> _finishFlow() async {
       final reviewData = c.reviewData ?? await c.api.reviewAttempt(c.attempt!.id);
       if (!mounted) return;
 
-      // ✅ FIX #7: pushReplacement reemplaza el cuestionario por el review
-      // Al cerrar el review, NO vuelve al cuestionario, va al dashboard.
-      await Navigator.pushReplacement(
+      await Navigator.push<bool>(
         context,
         MaterialPageRoute(
           builder: (_) => ReviewScreen(
@@ -389,6 +380,8 @@ Future<void> _finishFlow() async {
           ),
         ),
       );
+
+      if (mounted) Navigator.pop(context, true);
     }
   } catch (e) {
     if (!mounted) return;

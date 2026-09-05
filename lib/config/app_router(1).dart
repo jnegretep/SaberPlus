@@ -47,7 +47,6 @@ import '../screens/teacher/teacher_students_screen.dart';
 import '../screens/invitations_screen.dart';
 import '../screens/achievements_screen.dart';
 import '../screens/xp_ranking_screen.dart';
-import '../screens/daily_challenges_screen.dart';
 
 /// Rutas que NO requieren autenticación
 const _publicRoutes = {
@@ -130,7 +129,7 @@ GoRouter buildAppRouter({
           final extra = state.extra as Map<String, dynamic>;
           return VerifyEmailScreen(
             email: extra['email'] as String,
-            userId: int.parse(extra['userId'] as String),
+            userId: extra['userId'] as String,
             selectedImage: extra['selectedImage'],
             selectedAvatarAsset: extra['selectedAvatarAsset'],
           );
@@ -268,12 +267,6 @@ GoRouter buildAppRouter({
       GoRoute(
         path: '/xp-ranking',
         builder: (context, state) => const XpRankingScreen(),
-      ),
-
-      // ── Retos Diarios ──
-      GoRoute(
-        path: '/daily-challenges',
-        builder: (context, state) => const DailyChallengesScreen(),
       ),
 
       // ── Retos (Challenges) ──

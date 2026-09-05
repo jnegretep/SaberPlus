@@ -21,9 +21,6 @@ class AppConstants {
   // como factor local. Si el refresh falla, el usuario debe re-loguearse.)
   static const String keyBiometricEnabled = 'biometric_enabled';
   static const String keyBiometricEmail = 'biometric_email';
-  // ✅ FIX BIOMETRIC: Refresh token biométrico en clave SEPARADA
-  // que NO se borra al hacer logout. Así la biometría funciona tras logout.
-  static const String keyBiometricRefreshToken = 'biometric_refresh_token';
   // NOTA: NUNCA guardar la contraseña en SharedPreferences (security risk)
   // La contraseña se elimina del storage en esta versión.
 

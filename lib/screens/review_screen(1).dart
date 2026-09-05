@@ -1,9 +1,7 @@
-// review_screen.dart - VERSIÓN CORREGIDA
 import '../config/env.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import 'package:percent_indicator/percent_indicator.dart';
@@ -14,15 +12,15 @@ import '../core/theme/app_colors.dart';
 import '../widgets/math/math_text.dart';
 
 class ReviewScreen extends StatefulWidget {
-  final Map<String, dynamic> reviewData;
+   final Map<String, dynamic> reviewData;
   final int courseId;
-  final int quizId;
+  final int quizId; // ¡NUEVO!
 
   const ReviewScreen({
     Key? key,
     required this.reviewData,
     required this.courseId,
-    required this.quizId,
+    required this.quizId, // ¡NUEVO!
   }) : super(key: key);
 
   @override
@@ -33,7 +31,9 @@ class _ReviewScreenState extends State<ReviewScreen>
     with SingleTickerProviderStateMixin {
   TabController? _tabController;
   bool _statsSent = false;
-  final List<int> _simuIds = const [2, 3, 18, 24, 25, 26, 27, 28, 29, 30, 31];
+  final List<int> _simuIds = const [
+    2, 3, 18, 24, 25, 26, 27, 28, 29, 30, 31
+  ];
 
   // ==========================
   //   MÉTODOS DE UTILIDAD
@@ -48,91 +48,18 @@ class _ReviewScreenState extends State<ReviewScreen>
     return urls.where((u) => !u.contains('/i/unflagged')).toList();
   }
 
-  /// Limpia el HTML de la pregunta para mostrar solo el enunciado y las opciones,
-  /// pero SIN eliminar la información de respuestas (la extraemos aparte).
-  String _cleanQuestionHtml(String htmlText) {
-    String result = htmlText;
-
-    // 1. Eliminar imágenes (se muestran aparte)
-    result = result.replaceAll(RegExp(r'<img[^>]*>', caseSensitive: false), '');
-
-    // 2. Eliminar divs de calificación (grade) y estado (state)
-    result = result.replaceAll(
-        RegExp(r'<div[^>]*class="[^"]*grade[^"]*"[^>]*>.*?<\/div>',
-            caseSensitive: false, dotAll: true),
-        '');
-    result = result.replaceAll(
-        RegExp(r'<div[^>]*class="[^"]*state[^"]*"[^>]*>.*?<\/div>',
-            caseSensitive: false, dotAll: true),
-        '');
-    result = result.replaceAll(
-        RegExp(r'<span[^>]*class="[^"]*state[^"]*"[^>]*>.*?<\/span>',
-            caseSensitive: false, dotAll: true),
-        '');
-
-    // 3. Eliminar divs de feedback (los extraemos aparte)
-    result = result.replaceAll(
-        RegExp(r'<div[^>]*class="[^"]*feedback[^"]*"[^>]*>.*?<\/div>',
-            caseSensitive: false, dotAll: true),
-        '');
-
-    // 4. Eliminar divs de outcome y otros contenedores
-    result = result.replaceAll(
-        RegExp(r'<div[^>]*class="[^"]*outcome[^"]*"[^>]*>.*?<\/div>',
-            caseSensitive: false, dotAll: true),
-        '');
-
-    // 5. Eliminar headers y otros textos redundantes
-    result = result.replaceAll(
-        RegExp(r'<h[3-4][^>]*>.*?<\/h[3-4]>', caseSensitive: false, dotAll: true),
-        '');
-    result = result.replaceAll(RegExp(r'v\d+\s*\(latest\)', caseSensitive: false), '');
-    result = result.replaceAll(
-        RegExp(r'<div[^>]*class="[^"]*fullscreen[^"]*"[^>]*>.*?<\/div>',
-            caseSensitive: false, dotAll: true),
-        '');
-    result = result.replaceAll(
-        RegExp(r'<a[^>]*class="[^"]*fullscreen[^"]*"[^>]*>.*?<\/a>',
-            caseSensitive: false, dotAll: true),
-        '');
-
-    // 6. Eliminar span "prompt" (etiquetas "Respuesta:")
-    result = result.replaceAll(
-        RegExp(r'<span[^>]*class="prompt"[^>]*>.*?<\/span>',
-            caseSensitive: false, dotAll: true),
-        '');
-
-    // 7. Eliminar comentarios HTML
-    result = result.replaceAll(RegExp(r'<!--.*?-->', dotAll: true), '');
-
-    // 8. Eliminar textos sueltos "Correcta/Incorrecta"
-    result = result.replaceAll(
-        RegExp(r'>\s*(Correcta|Incorrecta|Sin responder)\s*<',
-            caseSensitive: false),
-        '><');
-
-    // 9. Eliminar spans de correct/incorrect que envuelven opciones
-    result = result.replaceAll(
-        RegExp(r'<span[^>]*class="[^"]*correct[^"]*"[^>]*>(.*?)<\/span>',
-            caseSensitive: false, dotAll: true),
-        r'$1');
-    result = result.replaceAll(
-        RegExp(r'<span[^>]*class="[^"]*incorrect[^"]*"[^>]*>(.*?)<\/span>',
-            caseSensitive: false, dotAll: true),
-        r'$1');
-
-    // 10. Limpiar divs y spans vacíos
-    result = result.replaceAll(
-        RegExp(r'<div[^>]*>\s*<\/div>', caseSensitive: false),
-        '');
-    result = result.replaceAll(
-        RegExp(r'<span[^>]*>\s*<\/span>', caseSensitive: false),
-        '');
-
-    // 11. Eliminar espacios en blanco excesivos
-    result = result.replaceAll(RegExp(r'\n\s*\n\s*\n'), '\n\n');
-    result = result.replaceAll(RegExp(r'^\s+'), '');
-    return result.trim();
+  String _removeImageTagsAndHeaders(String htmlText) {
+    return htmlText
+        .replaceAll(RegExp(r'<img[^>]*>', caseSensitive: false), '')
+        .replaceAll(
+            RegExp(r'<div[^>]*class="grade"[^>]*>.*?<\/div>',
+                caseSensitive: false, dotAll: true),
+            '')
+        .replaceAll(
+            RegExp(r'<h3[^>]*>.*?<\/h3>',
+                caseSensitive: false, dotAll: true),
+            '')
+        .trim();
   }
 
   String _proxyUrl(String src) {
@@ -140,9 +67,9 @@ class _ReviewScreenState extends State<ReviewScreen>
     return '${Env.apiBaseUrl}/get_file.php?url=$encoded';
   }
 
-  /// Extrae el estado (Correcta/Incorrecta/Sin responder) del HTML
   String _extractState(String htmlText) {
     final low = htmlText.toLowerCase();
+
     if (low.contains('class="que multichoice deferredfeedback correct"') ||
         low.contains('gradedright')) {
       return 'Correcta';
@@ -156,6 +83,7 @@ class _ReviewScreenState extends State<ReviewScreen>
         low.contains('not answered')) {
       return 'Sin responder';
     }
+
     return 'Sin responder';
   }
 
@@ -166,97 +94,33 @@ class _ReviewScreenState extends State<ReviewScreen>
     return AppColors.warning;
   }
 
-  /// Extrae la respuesta del usuario del HTML (texto de la opción elegida)
-  String _extractUserAnswer(String htmlText) {
-    // Busca <div class="answer"> o similar, o el texto marcado como "user answer"
-    final userAnswerRegex = RegExp(
-        r'<div[^>]*class="[^"]*answer[^"]*"[^>]*>.*?<span[^>]*class="[^"]*selected[^"]*"[^>]*>(.*?)</span>',
-        caseSensitive: false,
-        dotAll: true);
-    final match = userAnswerRegex.firstMatch(htmlText);
-    if (match != null) {
-      return _stripHtml(match.group(1)!.trim());
-    }
-
-    // Fallback: buscar cualquier texto que sea "Respuesta: ..."
-    final fallbackRegex =
-        RegExp(r'Respuesta:\s*(.*?)(?=<|$)', caseSensitive: false);
-    final fallbackMatch = fallbackRegex.firstMatch(htmlText);
-    if (fallbackMatch != null) {
-      return _stripHtml(fallbackMatch.group(1)!.trim());
-    }
-
-    return '';
-  }
-
-  /// Extrae la respuesta correcta del HTML
-  String _extractCorrectAnswer(String htmlText) {
-    // Busca <div class="rightanswer"> o similar
-    final rightAnswerRegex = RegExp(
-        r'<div[^>]*class="[^"]*rightanswer[^"]*"[^>]*>(.*?)</div>',
-        caseSensitive: false,
-        dotAll: true);
-    final match = rightAnswerRegex.firstMatch(htmlText);
-    if (match != null) {
-      return _stripHtml(match.group(1)!.trim());
-    }
-
-    // Fallback: buscar "La respuesta correcta es: ..."
-    final fallbackRegex =
-        RegExp(r'La respuesta correcta es:\s*(.*?)(?=<|$)', caseSensitive: false);
-    final fallbackMatch = fallbackRegex.firstMatch(htmlText);
-    if (fallbackMatch != null) {
-      return _stripHtml(fallbackMatch.group(1)!.trim());
-    }
-
-    return '';
-  }
-
-  /// Extrae el feedback (explicación) del HTML
   String _extractFeedback(String htmlText) {
-    final feedbackRegex = RegExp(
-        r'<div[^>]*class="[^"]*feedback[^"]*"[^>]*>([\s\S]*?)</div>',
-        caseSensitive: false);
-    final match = feedbackRegex.firstMatch(htmlText);
-    if (match == null) return '';
+    final exp =
+        RegExp(r'<div[^>]*class="feedback"[^>]*>([\s\S]*?)<\/div>',
+            caseSensitive: false);
+    final match = exp.firstMatch(htmlText);
+    String content = match != null ? match.group(1)!.trim() : '';
 
-    String content = match.group(1)!.trim();
-    // Limpiar elementos redundantes
     content = content
-        .replaceAll(RegExp(r'Se\s*punt(úa|ua).*?[\.]?', caseSensitive: false), '')
+        .replaceAll(RegExp(r'Se\s*punt(úa|ua).*?[\.]?',
+            caseSensitive: false), '')
         .replaceAll(RegExp(r'\bCorrecta\b', caseSensitive: false), '')
         .replaceAll(RegExp(r'\bIncorrecta\b', caseSensitive: false), '')
-        .replaceAll(
-            RegExp(r'<span[^>]*class="state"[^>]*>.*?</span>',
-                caseSensitive: false, dotAll: true),
-            '')
-        .replaceAll(
-            RegExp(r'<div[^>]*class="state"[^>]*>.*?</div>',
-                caseSensitive: false, dotAll: true),
-            '')
-        .replaceAll(RegExp(r'<img[^>]*>', caseSensitive: false), '')
-        .replaceAll(RegExp(r'<div[^>]*>\s*</div>', caseSensitive: false), '')
-        .replaceAll(RegExp(r'\n\s*\n\s*\n'), '\n\n')
         .trim();
 
     return content;
   }
 
-  /// Elimina etiquetas HTML de un texto
-  String _stripHtml(String html) {
-    return html.replaceAll(RegExp(r'<[^>]*>'), '').trim();
-  }
-
-  /// Renderizado con MathText (delega la lógica de ecuaciones)
+  /// ✅ FASE 4.2: Renderizado mejorado — delega al widget MathText.
   Widget _renderHtmlWithMath(String htmlText, {bool isFeedback = false}) {
-    if (htmlText.isEmpty) return const SizedBox.shrink();
     return MathText(
       html: htmlText,
-      isOption: isFeedback,
+      isOption: isFeedback, // isFeedback usa tamaño de opción (más pequeño)
     );
   }
 
-  void _openImageGallery(BuildContext context, List<String> urls, int index) {
+  void _openImageGallery(
+      BuildContext context, List<String> urls, int index) {
     if (urls.isEmpty) return;
     final proxy = urls.map(_proxyUrl).toList();
     Navigator.push(
@@ -277,7 +141,7 @@ class _ReviewScreenState extends State<ReviewScreen>
               minScale: PhotoViewComputedScale.contained,
               maxScale: PhotoViewComputedScale.covered * 3,
             ),
-            backgroundDecoration: const BoxDecoration(color: Colors.black),
+            backgroundDecoration: BoxDecoration(color: Colors.black),
             loadingBuilder: (context, event) => Center(
               child: CircularProgressIndicator(
                 value: event == null
@@ -297,7 +161,12 @@ class _ReviewScreenState extends State<ReviewScreen>
   // ==========================
 
   String _getAreaName(int page, int totalPages) {
-    if (totalPages == 1) return 'Cuestionario';
+    // Si solo hay una página, es un cuestionario normal, no un simulacro
+    if (totalPages == 1) {
+      return 'Cuestionario';
+    }
+    
+    // Si hay 5 páginas, asumimos que es un simulacro ICFES con áreas específicas
     if (totalPages == 5) {
       const areas = [
         'Lectura crítica',
@@ -308,25 +177,29 @@ class _ReviewScreenState extends State<ReviewScreen>
       ];
       if (page >= 0 && page < areas.length) return areas[page];
     }
+    
+    // Para cualquier otro caso (por si acaso)
     return 'Área ${page + 1}';
   }
 
   Color _getAreaColor(int page, int totalPages) {
-    if (totalPages == 1) return AppColors.primary;
+    // Si es cuestionario de una sola página, usar color primario
+    if (totalPages == 1) {
+      return AppColors.primary;
+    }
+    
+    // Si es simulacro ICFES (5 páginas), usar colores por área
     if (totalPages == 5) {
       switch (page) {
-        case 0:
-          return AppColors.primaryLight;
-        case 1:
-          return AppColors.successDark;
-        case 2:
-          return AppColors.purple;
-        case 3:
-          return AppColors.warning;
-        case 4:
-          return AppColors.error;
+        case 0: return AppColors.primaryLight; // Lectura crítica
+        case 1: return AppColors.successDark; // Matemáticas
+        case 2: return AppColors.purple; // Ciencias sociales
+        case 3: return AppColors.warning; // Ciencias naturales
+        case 4: return AppColors.error; // Inglés
       }
     }
+    
+    // Color por defecto
     return AppColors.textMuted;
   }
 
@@ -343,50 +216,83 @@ class _ReviewScreenState extends State<ReviewScreen>
 
   double _globalScore(Map<int, List<Map<String, dynamic>>> grouped) {
     if (grouped.length < 5) return 0;
+
     final lc = _pageScore(grouped[0] ?? []);
     final mat = _pageScore(grouped[1] ?? []);
     final soc = _pageScore(grouped[2] ?? []);
     final cn = _pageScore(grouped[3] ?? []);
     final ing = _pageScore(grouped[4] ?? []);
-    return ((lc * 3 + mat * 3 + soc * 3 + cn * 3 + ing * 1) / 13) * 5;
+
+    final global = ((lc * 3 + mat * 3 + soc * 3 + cn * 3 + ing * 1) / 13) * 5;
+    return global;
   }
 
   @override
   void initState() {
     super.initState();
     debugPrint("[REVIEW_SCREEN] Iniciando para courseId: ${widget.courseId}");
+    
     final qs = widget.reviewData['questions'] ?? [];
     final pages = <int>{};
     for (final q in qs) pages.add(q['page'] ?? 0);
+
     if (pages.length > 1) {
       _tabController = TabController(length: pages.length, vsync: this);
     }
   }
 
   // ==========================
-  //   MÉTODOS PARA GUARDAR ESTADÍSTICAS
+  //   MÉTODOS PARA GUARDAR ESTADÍSTICAS - MEJORADOS
   // ==========================
 
-  Future<void> _sendStatsIfNeeded(
-    Map<int, List<Map<String, dynamic>>> grouped,
-    List<int> sortedPages,
-  ) async {
-    if (_statsSent) return;
-    final review = widget.reviewData;
-    final attempt = review['attempt'] is Map
-        ? Map<String, dynamic>.from(review['attempt'])
-        : <String, dynamic>{};
+Future<void> _sendStatsIfNeeded(
+  Map<int, List<Map<String, dynamic>>> grouped,
+  List<int> sortedPages,
+) async {
+  if (_statsSent) return;
 
-    final courseId = widget.courseId;
-    if (!_simuIds.contains(courseId)) return;
-
-    final timefinish = attempt['timefinish'] ?? 0;
-    final state = (attempt['state'] ?? "").toString().toLowerCase();
-    if (timefinish == 0 && state == 'inprogress') return;
-    if (sortedPages.isEmpty || grouped.isEmpty) return;
-
-    await _saveSimulacroStats(grouped, sortedPages, attempt);
+  final review = widget.reviewData;
+  
+  // Convertir attempt a Map<String, dynamic> de forma segura
+  final Map<String, dynamic> attempt;
+  if (review['attempt'] != null) {
+    if (review['attempt'] is Map<String, dynamic>) {
+      attempt = review['attempt'] as Map<String, dynamic>;
+    } else {
+      attempt = Map<String, dynamic>.from(review['attempt']);
+    }
+  } else {
+    attempt = <String, dynamic>{};
   }
+  
+  // Verificar si es simulacro por courseId
+  final courseId = widget.courseId;
+  if (!_simuIds.contains(courseId)) {
+    debugPrint("[STATS] No es simulacro (courseId $courseId no está en _simuIds)");
+    return;
+  }
+  
+  // Verificar si el intento está terminado (por cualquier motivo)
+  final timefinish = attempt['timefinish'] ?? 0;
+  final state = (attempt['state'] ?? "").toString().toLowerCase();
+  
+  debugPrint("[STATS] timefinish: $timefinish, state: $state");
+  
+  // Si no está terminado, no guardar estadísticas aún
+  if (timefinish == 0 && state == 'inprogress') {
+    debugPrint("[STATS] Intento inprogress, no guardando estadísticas");
+    return;
+  }
+  
+  // Verificar que tenemos datos para calcular estadísticas
+  if (sortedPages.isEmpty || grouped.isEmpty) {
+    debugPrint("[STATS] No hay datos para calcular estadísticas");
+    return;
+  }
+  
+  // Guardar estadísticas para intentos terminados (finished, overdue, abandoned)
+  await _saveSimulacroStats(grouped, sortedPages, attempt);
+}
 
   Future<void> _saveSimulacroStats(
     Map<int, List<Map<String, dynamic>>> grouped,
@@ -396,45 +302,52 @@ class _ReviewScreenState extends State<ReviewScreen>
     final prefs = await SharedPreferences.getInstance();
     int quizId = attempt['quiz'] ?? widget.quizId;
     final key = 'simulacro_${quizId}_saved';
+    
+    // Evitar guardar múltiples veces
     if (prefs.getBool(key) == true) {
       _statsSent = true;
+      debugPrint("[STATS] Estadísticas ya guardadas previamente");
       return;
     }
-
+    
     final api = context.read<ApiService>();
+    
     try {
+      // Calcular estadísticas por área
       final Map<String, double> areaScores = {};
       final Map<String, int> areaCorrect = {};
+      
       for (final page in sortedPages) {
         final questions = grouped[page] ?? [];
         final areaName = _getAreaName(page, sortedPages.length);
-        final correct =
-            questions.where((q) => _extractState(q['html']) == 'Correcta').length;
+        final correct = questions.where((q) => _extractState(q['html']) == 'Correcta').length;
         final total = questions.length;
+        
         areaCorrect[areaName] = correct;
         areaScores[areaName] = total > 0 ? (correct / total * 100.0) : 0.0;
       }
-
+      
+      // Calcular puntaje global (según ponderación ICFES)
       final lectura = areaScores['Lectura crítica'] ?? 0;
       final matematicas = areaScores['Matemáticas'] ?? 0;
       final sociales = areaScores['Ciencias sociales'] ?? 0;
       final naturales = areaScores['Ciencias naturales'] ?? 0;
       final ingles = areaScores['Inglés'] ?? 0;
-      final globalScore = ((lectura * 3 + matematicas * 3 + sociales * 3 +
-              naturales * 3 + ingles * 1) /
-          13) *
-          5;
-
+      
+      final globalScore = ((lectura * 3 + matematicas * 3 + sociales * 3 + naturales * 3 + ingles * 1) / 13) * 5;
+      
+      // Calcular tiempo empleado en minutos
       int tiempoEmpleado = 0;
       if (attempt['timefinish'] != null && attempt['timestart'] != null) {
         final tiempoSegundos = attempt['timefinish'] - attempt['timestart'];
         tiempoEmpleado = (tiempoSegundos / 60).round();
       } else {
-        final tiempo =
-            attempt['timeused'] ?? attempt['time'] ?? attempt['tiempo'] ?? 0;
+        // Intentar obtener tiempo de otra fuente
+        final tiempo = attempt['timeused'] ?? attempt['time'] ?? attempt['tiempo'] ?? 0;
         tiempoEmpleado = (int.tryParse(tiempo.toString()) ?? 0) ~/ 60;
       }
-
+      
+      // Preparar payload
       final payload = <String, dynamic>{
         'simulacro_id': quizId,
         'course_id': widget.courseId,
@@ -451,17 +364,20 @@ class _ReviewScreenState extends State<ReviewScreen>
         'ingles_puntaje': ingles,
         'tiempo_empleado': tiempoEmpleado,
       };
-
+      
+      debugPrint("[STATS] Guardando estadísticas: $payload");
       await api.saveSimulacroResult(payload);
       await prefs.setBool(key, true);
       _statsSent = true;
+      
+      debugPrint("[STATS] Estadísticas guardadas exitosamente para quiz $quizId");
     } catch (e) {
       debugPrint("[STATS] Error guardando estadísticas: $e");
     }
   }
 
   // ==========================
-  //   CONSTRUCCIÓN DE LA VISTA
+  //   MÉTODOS DE CONSTRUCCIÓN
   // ==========================
 
   Widget _buildQuestionList(
@@ -477,7 +393,7 @@ class _ReviewScreenState extends State<ReviewScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // HEADER DEL ÁREA
+          // HEADER DEL ÁREA/CUESTIONARIO
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -492,6 +408,7 @@ class _ReviewScreenState extends State<ReviewScreen>
               ],
             ),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -518,7 +435,7 @@ class _ReviewScreenState extends State<ReviewScreen>
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          totalPages == 1
+                          totalPages == 1 
                               ? 'Resultados del cuestionario'
                               : 'Desempeño del área',
                           style: TextStyle(
@@ -591,9 +508,9 @@ class _ReviewScreenState extends State<ReviewScreen>
               ],
             ),
           ),
-
+          
           const SizedBox(height: 24),
-
+          
           // LISTA DE PREGUNTAS
           Column(
             children: [
@@ -610,60 +527,138 @@ class _ReviewScreenState extends State<ReviewScreen>
                   ),
                 ),
               ),
+              
               ...qs.asMap().entries.map((entry) {
                 final index = entry.key;
                 final q = entry.value;
                 final html = q['html'] ?? '';
-                final cleanQuestion = _cleanQuestionHtml(html);
+                final clean = _removeImageTagsAndHeaders(html);
                 final imgs = _extractImageUrls(html);
                 final state = _extractState(html);
-                final stateColor = _stateColor(state);
-                final userAnswer = _extractUserAnswer(html);
-                final correctAnswer = _extractCorrectAnswer(html);
+                final color = _stateColor(state);
                 final feedback = _extractFeedback(html);
-                final hasFeedback = feedback.isNotEmpty ||
-                    userAnswer.isNotEmpty ||
-                    correctAnswer.isNotEmpty;
-
+                final hasFeedback = feedback.isNotEmpty;
+                
                 return Container(
                   margin: const EdgeInsets.only(bottom: 16),
                   child: _QuestionCard(
                     questionNumber: q['slot'] ?? (index + 1),
-                    questionHtml: cleanQuestion,
+                    questionHtml: clean,
                     state: state,
-                    stateColor: stateColor,
+                    stateColor: color,
                     images: imgs,
-                    userAnswer: userAnswer,
-                    correctAnswer: correctAnswer,
                     feedback: feedback,
                     hasFeedback: hasFeedback,
-                    onImageTap: (imgIndex) =>
-                        _openImageGallery(context, imgs, imgIndex),
+                    onImageTap: (imgIndex) => _openImageGallery(context, imgs, imgIndex),
                     renderHtmlWithMath: (html) => _renderHtmlWithMath(html),
-                    renderFeedbackWithMath: (html) =>
-                        _renderHtmlWithMath(html, isFeedback: true),
+                    renderFeedbackWithMath: (html) => _renderHtmlWithMath(html, isFeedback: true),
                   ),
                 );
               }),
             ],
           ),
+          
           const SizedBox(height: 32),
         ],
       ),
     );
   }
 
-  Widget _buildSingleAreaView(
-    Map<int, List<Map<String, dynamic>>> grouped,
-    int page,
-    List<Map<String, dynamic>> questions,
-  ) {
-    final totalPages = grouped.length;
-    final attempt = widget.reviewData['attempt'] ?? {};
-    final state = (attempt['state'] ?? "").toString().toLowerCase();
-    final isOverdue = state == 'overdue';
+Widget _buildSingleAreaView(
+  Map<int, List<Map<String, dynamic>>> grouped,
+  int page,
+  List<Map<String, dynamic>> questions,
+) {
+  final totalPages = grouped.length;
+  final attempt = widget.reviewData['attempt'] ?? {};
+  final state = (attempt['state'] ?? "").toString().toLowerCase();
+  final isOverdue = state == 'overdue';
 
-    return Scaffold(
+  return Scaffold(
+    backgroundColor: AppColors.background,
+    appBar: AppBar(
+      backgroundColor: AppColors.surface,
+      elevation: 1,
+      centerTitle: false,
+      leading: IconButton(
+        icon: Icon(
+          Icons.arrow_back_rounded,
+          color: AppColors.textSecondary,
+          size: 24,
+        ),
+        onPressed: () {
+          Navigator.pop(context, true);
+        },
+      ),
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            isOverdue
+                ? 'Revisión - Cuestionario Vencido'
+                : 'Revisión del cuestionario',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: isOverdue
+                  ? AppColors.errorDark
+                  : AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '${questions.length} preguntas',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.textTertiary,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        Padding(
+          padding: const EdgeInsets.only(right: 16),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: isOverdue
+                  ? AppColors.errorLight
+                  : AppColors.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              '${_pageScore(questions).toStringAsFixed(0)}%',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: isOverdue
+                    ? AppColors.errorDark
+                    : AppColors.primary,
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+    body: _buildQuestionList(questions, page, false, totalPages),
+  );
+}
+
+
+Widget _buildMultiAreaView(
+  Map<int, List<Map<String, dynamic>>> grouped,
+  List<int> sortedPages,
+  double globalScore,
+) {
+  final totalPages = sortedPages.length;
+  final isSimulacro = totalPages == 5;
+  final attempt = widget.reviewData['attempt'] ?? {};
+  final state = (attempt['state'] ?? "").toString().toLowerCase();
+  final isOverdue = state == 'overdue';
+
+  return DefaultTabController(
+    length: totalPages,
+    child: Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: AppColors.surface,
@@ -675,229 +670,157 @@ class _ReviewScreenState extends State<ReviewScreen>
             color: AppColors.textSecondary,
             size: 24,
           ),
-          onPressed: () => Navigator.pop(context, true),
+          onPressed: () {
+            Navigator.pop(context, true);
+          },
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               isOverdue
-                  ? 'Revisión - Cuestionario Vencido'
-                  : 'Revisión del cuestionario',
+                  ? 'Revisión - Simulacro Vencido'
+                  : isSimulacro
+                      ? 'Revisión - Simulacro ICFES'
+                      : 'Revisión - Múltiples secciones',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
-                color: isOverdue ? AppColors.errorDark : AppColors.textSecondary,
+                color: isOverdue
+                    ? AppColors.errorDark
+                    : AppColors.textSecondary,
               ),
             ),
             const SizedBox(height: 2),
-            Text(
-              '${questions.length} preguntas',
-              style: TextStyle(
-                fontSize: 12,
-                color: AppColors.textTertiary,
-              ),
+            Row(
+              children: [
+                if (isSimulacro) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isOverdue
+                          ? AppColors.errorLight
+                          : AppColors.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'Global: ${globalScore.toStringAsFixed(1)}/500',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: isOverdue
+                            ? AppColors.errorDark
+                            : AppColors.primary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Text(
+                  '$totalPages ${totalPages == 1 ? 'sección' : 'secciones'}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textTertiary,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: isOverdue
-                    ? AppColors.errorLight
-                    : AppColors.primary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                '${_pageScore(questions).toStringAsFixed(0)}%',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: isOverdue ? AppColors.errorDark : AppColors.primary,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-      body: _buildQuestionList(questions, page, false, totalPages),
-    );
-  }
-
-  Widget _buildMultiAreaView(
-    Map<int, List<Map<String, dynamic>>> grouped,
-    List<int> sortedPages,
-    double globalScore,
-  ) {
-    final totalPages = sortedPages.length;
-    final isSimulacro = totalPages == 5;
-    final attempt = widget.reviewData['attempt'] ?? {};
-    final state = (attempt['state'] ?? "").toString().toLowerCase();
-    final isOverdue = state == 'overdue';
-
-    return DefaultTabController(
-      length: totalPages,
-      child: Scaffold(
-        backgroundColor: AppColors.background,
-        appBar: AppBar(
-          backgroundColor: AppColors.surface,
-          elevation: 1,
-          centerTitle: false,
-          leading: IconButton(
-            icon: Icon(
-              Icons.arrow_back_rounded,
-              color: AppColors.textSecondary,
-              size: 24,
-            ),
-            onPressed: () => Navigator.pop(context, true),
-          ),
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                isOverdue
-                    ? 'Revisión - Simulacro Vencido'
-                    : isSimulacro
-                        ? 'Revisión - Simulacro ICFES'
-                        : 'Revisión - Múltiples secciones',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: isOverdue ? AppColors.errorDark : AppColors.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Row(
-                children: [
-                  if (isSimulacro) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: isOverdue
-                            ? AppColors.errorLight
-                            : AppColors.primary.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        'Global: ${globalScore.toStringAsFixed(1)}/500',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: isOverdue ? AppColors.errorDark : AppColors.primary,
-                        ),
-                      ),
+        bottom: totalPages > 1
+            ? PreferredSize(
+                preferredSize: const Size.fromHeight(48),
+                child: Container(
+                  color: AppColors.surface,
+                  child: TabBar(
+                    isScrollable: true,
+                    labelColor: AppColors.primary,
+                    unselectedLabelColor: AppColors.textTertiary,
+                    indicatorColor: AppColors.primary,
+                    indicatorWeight: 3,
+                    indicatorSize: TabBarIndicatorSize.label,
+                    labelStyle: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
                     ),
-                    const SizedBox(width: 8),
-                  ],
-                  Text(
-                    '$totalPages ${totalPages == 1 ? 'sección' : 'secciones'}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textTertiary,
+                    unselectedLabelStyle: TextStyle(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 13,
                     ),
+                    tabs: sortedPages
+                        .map((p) => Tab(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 4),
+                                child: Text(_getAreaName(p, totalPages)),
+                              ),
+                            ))
+                        .toList(),
                   ),
-                ],
-              ),
-            ],
-          ),
-          bottom: totalPages > 1
-              ? PreferredSize(
-                  preferredSize: const Size.fromHeight(48),
-                  child: Container(
-                    color: AppColors.surface,
-                    child: TabBar(
-                      isScrollable: true,
-                      labelColor: AppColors.primary,
-                      unselectedLabelColor: AppColors.textTertiary,
-                      indicatorColor: AppColors.primary,
-                      indicatorWeight: 3,
-                      indicatorSize: TabBarIndicatorSize.label,
-                      labelStyle: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                      ),
-                      unselectedLabelStyle: const TextStyle(
-                        fontWeight: FontWeight.w500,
-                        fontSize: 13,
-                      ),
-                      tabs: sortedPages
-                          .map((p) => Tab(
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 4),
-                                  child: Text(_getAreaName(p, totalPages)),
-                                ),
-                              ))
-                          .toList(),
-                    ),
-                  ),
-                )
-              : null,
-        ),
-        body: TabBarView(
-          children: sortedPages
-              .map((p) => _buildQuestionList(grouped[p]!, p, true, totalPages))
-              .toList(),
-        ),
+                ),
+              )
+            : null,
       ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final review = widget.reviewData;
-    final questions = review['questions'] is List
-        ? List<Map<String, dynamic>>.from(review['questions'])
-        : <Map<String, dynamic>>[];
-
-    final grouped = <int, List<Map<String, dynamic>>>{};
-    for (final q in questions) {
-      final p = q['page'] ?? 0;
-      grouped.putIfAbsent(p, () => []).add(q);
-    }
-
-    final sortedPages = grouped.keys.toList()..sort();
-    final totalPages = sortedPages.length;
-    final isMulti = totalPages > 1;
-    final globalScore = isMulti && totalPages == 5 ? _globalScore(grouped) : 0.0;
-
-    if (!_statsSent && _simuIds.contains(widget.courseId)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _sendStatsIfNeeded(grouped, sortedPages);
-      });
-    }
-
-    return WillPopScope(
-      onWillPop: () async {
-        Navigator.pop(context, true);
-        return false;
-      },
-      child: isMulti
-          ? _buildMultiAreaView(grouped, sortedPages, globalScore)
-          : _buildSingleAreaView(
-              grouped,
-              sortedPages.first,
-              grouped[sortedPages.first] ?? [],
-            ),
-    );
-  }
+      body: TabBarView(
+        children: sortedPages
+            .map((p) => _buildQuestionList(grouped[p]!, p, true, totalPages))
+            .toList(),
+      ),
+    ),
+  );
 }
 
-// ============================================================
-//   _QuestionCard (widget auxiliar con toda la info)
-// ============================================================
+
+  @override
+@override
+Widget build(BuildContext context) {
+  final review = widget.reviewData;
+  final questions = review['questions'] is List
+      ? List<Map<String, dynamic>>.from(review['questions'])
+      : <Map<String, dynamic>>[];
+
+  final grouped = <int, List<Map<String, dynamic>>>{};
+  for (final q in questions) {
+    final p = q['page'] ?? 0;
+    grouped.putIfAbsent(p, () => []).add(q);
+  }
+
+  final sortedPages = grouped.keys.toList()..sort();
+  final totalPages = sortedPages.length;
+  final isMulti = totalPages > 1;
+  final globalScore = isMulti && totalPages == 5 ? _globalScore(grouped) : 0.0;
+
+  // Guardar estadísticas si es un simulacro y aún no se han guardado
+  if (!_statsSent && _simuIds.contains(widget.courseId)) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _sendStatsIfNeeded(grouped, sortedPages);
+    });
+  }
+
+  return WillPopScope(
+    onWillPop: () async {
+      Navigator.pop(context, true);
+      return false;
+    },
+    child: isMulti
+        ? _buildMultiAreaView(grouped, sortedPages, globalScore)
+        : _buildSingleAreaView(
+            grouped,
+            sortedPages.first,
+            grouped[sortedPages.first] ?? [],
+          ),
+  );
+}
+
+}
+
 class _QuestionCard extends StatefulWidget {
   final int questionNumber;
   final String questionHtml;
   final String state;
   final Color stateColor;
   final List<String> images;
-  final String userAnswer;
-  final String correctAnswer;
   final String feedback;
   final bool hasFeedback;
   final Function(int) onImageTap;
@@ -910,8 +833,6 @@ class _QuestionCard extends StatefulWidget {
     required this.state,
     required this.stateColor,
     required this.images,
-    required this.userAnswer,
-    required this.correctAnswer,
     required this.feedback,
     required this.hasFeedback,
     required this.onImageTap,
@@ -1005,10 +926,10 @@ class _QuestionCardState extends State<_QuestionCard> {
                     ),
                   ],
                 ),
-
+                
                 const SizedBox(height: 16),
-
-                // IMÁGENES
+                
+                // IMÁGENES (SI HAY)
                 if (widget.images.isNotEmpty)
                   Column(
                     children: [
@@ -1020,41 +941,34 @@ class _QuestionCardState extends State<_QuestionCard> {
                           separatorBuilder: (_, __) => const SizedBox(width: 12),
                           itemBuilder: (_, index) {
                             final src = widget.images[index];
-                            final proxiedUrl =
-                                '${Env.apiBaseUrl}/get_file.php?url=${Uri.encodeFull(src)}';
                             return GestureDetector(
                               onTap: () => widget.onImageTap(index),
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(12),
                                 child: Stack(
                                   children: [
-                                    CachedNetworkImage(
-                                      imageUrl: proxiedUrl,
+                                    Image.network(
+                                      '${Env.apiBaseUrl}/get_file.php?url=${Uri.encodeFull(src)}',
                                       fit: BoxFit.cover,
                                       height: 140,
                                       width: 180,
-                                      placeholder: (context, url) => Container(
-                                        width: 180,
-                                        height: 140,
-                                        color: AppColors.surfaceVariant,
-                                        child: Center(
-                                          child: CircularProgressIndicator(
-                                            color: AppColors.primary,
-                                            strokeWidth: 2,
+                                      loadingBuilder: (context, child, loadingProgress) {
+                                        if (loadingProgress == null) return child;
+                                        return Container(
+                                          width: 180,
+                                          height: 140,
+                                          color: AppColors.surfaceVariant,
+                                          child: Center(
+                                            child: CircularProgressIndicator(
+                                              value: loadingProgress.expectedTotalBytes != null
+                                                  ? loadingProgress.cumulativeBytesLoaded /
+                                                      loadingProgress.expectedTotalBytes!
+                                                  : null,
+                                              color: AppColors.primary,
+                                            ),
                                           ),
-                                        ),
-                                      ),
-                                      errorWidget: (context, url, error) =>
-                                          Container(
-                                        width: 180,
-                                        height: 140,
-                                        color: AppColors.surfaceVariant,
-                                        child: Icon(
-                                          Icons.broken_image_outlined,
-                                          color: AppColors.textDisabled,
-                                          size: 32,
-                                        ),
-                                      ),
+                                        );
+                                      },
                                     ),
                                     Positioned(
                                       top: 8,
@@ -1063,8 +977,7 @@ class _QuestionCardState extends State<_QuestionCard> {
                                         padding: const EdgeInsets.all(4),
                                         decoration: BoxDecoration(
                                           color: AppColors.overlay,
-                                          borderRadius:
-                                              BorderRadius.circular(6),
+                                          borderRadius: BorderRadius.circular(6),
                                         ),
                                         child: Icon(
                                           Icons.zoom_in_rounded,
@@ -1083,14 +996,14 @@ class _QuestionCardState extends State<_QuestionCard> {
                       const SizedBox(height: 16),
                     ],
                   ),
-
-                // ENUNCIADO DE LA PREGUNTA (con ecuaciones)
+                
+                // CONTENIDO DE LA PREGUNTA
                 widget.renderHtmlWithMath(widget.questionHtml),
               ],
             ),
           ),
-
-          // SECCIÓN DESPLEGABLE: FEEDBACK + RESPUESTAS
+          
+          // FEEDBACK (COLLAPSIBLE)
           if (widget.hasFeedback)
             Column(
               children: [
@@ -1126,7 +1039,7 @@ class _QuestionCardState extends State<_QuestionCard> {
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              'Retroalimentación y respuestas',
+                              'Retroalimentación',
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
@@ -1145,6 +1058,7 @@ class _QuestionCardState extends State<_QuestionCard> {
                     ),
                   ),
                 ),
+                
                 if (_expanded)
                   Container(
                     padding: const EdgeInsets.all(16),
@@ -1158,113 +1072,7 @@ class _QuestionCardState extends State<_QuestionCard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Respuesta del usuario
-                        if (widget.userAnswer.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Icon(
-                                  Icons.person_outline_rounded,
-                                  size: 18,
-                                  color: AppColors.textTertiary,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Tu respuesta:',
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: AppColors.textTertiary,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      widget.renderFeedbackWithMath(
-                                          widget.userAnswer),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-
-                        // Respuesta correcta
-                        if (widget.correctAnswer.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Icon(
-                                  Icons.check_circle_outline_rounded,
-                                  size: 18,
-                                  color: AppColors.successDark,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Respuesta correcta:',
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: AppColors.successDark,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      widget.renderFeedbackWithMath(
-                                          widget.correctAnswer),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-
-                        // Feedback (explicación)
-                        if (widget.feedback.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Icon(
-                                  Icons.info_outline_rounded,
-                                  size: 18,
-                                  color: AppColors.textTertiary,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Explicación:',
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: AppColors.textTertiary,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      widget.renderFeedbackWithMath(
-                                          widget.feedback),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                        widget.renderFeedbackWithMath(widget.feedback),
                       ],
                     ),
                   ),
@@ -1273,5 +1081,5 @@ class _QuestionCardState extends State<_QuestionCard> {
         ],
       ),
     );
-  }
+    }
 }

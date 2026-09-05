@@ -111,88 +111,16 @@ class _PerfilHubScreenState extends State<PerfilHubScreen>
 
       setState(() => _biometricEnabled = enabled);
 
-      if (enabled) {
-        // ✅ Diálogo de éxito con instrucciones claras
-        await showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            icon: const Icon(
-              Icons.check_circle_rounded,
-              color: AppColors.success,
-              size: 64,
-            ),
-            title: const Text(
-              '¡Huella activada!',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-              textAlign: TextAlign.center,
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Tu huella ha sido configurada exitosamente.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 14, color: AppColors.textTertiary),
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.primary.withOpacity(0.2)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.info_outline_rounded,
-                          color: AppColors.primary, size: 20),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'La próxima vez que abras Saber+, verás el botón '
-                          '"Ingresar con huella" en la pantalla de login. '
-                          'Solo toca el botón y autentícate con tu huella.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppColors.primary,
-                            height: 1.4,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.success,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  child: const Text('¡Entendido!', style: TextStyle(fontWeight: FontWeight.w700)),
-                ),
-              ),
-            ],
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No se pudo activar el login por huella. '
-                'Intenta iniciar sesión primero.'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(enabled
+              ? '¡Login por huella activado! La próxima vez podrás ingresar '
+                'usando tu huella.'
+              : 'No se pudo activar el login por huella. Intenta '
+                'iniciar sesión primero.'),
+          backgroundColor: enabled ? AppColors.success : AppColors.error,
+        ),
+      );
     } else {
       // Desactivar
       await auth.disableBiometricLogin();

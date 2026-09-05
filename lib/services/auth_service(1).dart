@@ -454,10 +454,6 @@ class AuthService extends ChangeNotifier {
   /// A partir de este momento, [loginWithBiometric] podrá usarse para
   /// iniciar sesión sin pedir email/contraseña.
   ///
-  /// ✅ FIX BIOMETRIC: Guardamos el refresh token en una clave SEPARADA
-  /// (keyBiometricRefreshToken) que NO se borra al hacer logout.
-  /// Así, al re-abrir la app tras logout, la biometría sigue funcionando.
-  ///
   /// Requiere que el usuario tenga un refresh token válido almacenado.
   Future<bool> enableBiometricLogin() async {
     if (refreshToken == null || refreshToken!.isEmpty) {
@@ -473,34 +469,26 @@ class AuthService extends ChangeNotifier {
 
     await _storage.write(key: AppConstants.keyBiometricEnabled, value: 'true');
     await _storage.write(key: AppConstants.keyBiometricEmail, value: email);
-    // ✅ Guardar refresh token en clave separada (persiste tras logout)
-    await _storage.write(
-        key: AppConstants.keyBiometricRefreshToken, value: refreshToken);
 
     AppLogger.i('enableBiometricLogin: biometría habilitada para $email');
     return true;
   }
 
   /// Deshabilita el login biométrico.
-  /// Limpia todas las claves de biometría incluyendo el refresh token guardado.
   Future<void> disableBiometricLogin() async {
     await _storage.delete(key: AppConstants.keyBiometricEnabled);
     await _storage.delete(key: AppConstants.keyBiometricEmail);
-    await _storage.delete(key: AppConstants.keyBiometricRefreshToken);
     AppLogger.i('disableBiometricLogin: biometría deshabilitada');
     notifyListeners();
   }
 
   /// Ejecuta el login biométrico.
   ///
-  /// ✅ FIX BIOMETRIC: Usa el refresh token guardado en keyBiometricRefreshToken
-  /// (que persiste tras logout) en vez del refresh token normal.
-  ///
   /// Flujo:
-  /// 1. Verifica que la biometría esté habilitada.
+  /// 1. Verifica que la biometría esté habilitada y haya refresh token.
   /// 2. El llamador debe invocar [BiometricService.authenticate()] para mostrar
   ///    el prompt nativo. Si la autenticación biométrica es exitosa, este
-  ///    método intenta refrescar el token usando el refresh token biométrico.
+  ///    método intenta refrescar el token usando el refresh token almacenado.
   /// 3. Si el refresh funciona → login completo (notifyListeners).
   /// 4. Si el refresh falla → retorna false (el usuario debe re-loguearse).
   Future<bool> loginWithBiometric() async {
@@ -510,26 +498,20 @@ class AuthService extends ChangeNotifier {
       return false;
     }
 
-    // ✅ FIX BIOMETRIC: Usar el refresh token biométrico (persiste tras logout)
-    // en lugar del refresh token normal (que se borra al logout).
-    final biometricRefreshToken =
-        await _storage.read(key: AppConstants.keyBiometricRefreshToken);
+    // Cargar el refresh token desde storage (puede que el usuario no tenga
+    // una sesión activa en memoria pero sí un refresh token persistido).
+    refreshToken ??=
+        await _storage.read(key: AppConstants.keyRefreshToken);
 
-    if (biometricRefreshToken == null || biometricRefreshToken.isEmpty) {
-      AppLogger.w('loginWithBiometric: no hay refresh token biométrico almacenado');
+    if (refreshToken == null) {
+      AppLogger.w('loginWithBiometric: no hay refresh token almacenado');
       return false;
     }
 
-    // Usar el refresh token biométrico para esta sesión
-    refreshToken = biometricRefreshToken;
-    DioClient.refreshToken = biometricRefreshToken;
-
-    AppLogger.i('loginWithBiometric: intentando refresh con token biométrico...');
+    AppLogger.i('loginWithBiometric: intentando refresh...');
     final ok = await tryRefresh();
     if (!ok) {
       AppLogger.w('loginWithBiometric: refresh falló, requiere re-login');
-      // Si el refresh token biométrico expiró, desactivar biometría
-      await disableBiometricLogin();
       return false;
     }
 
@@ -538,14 +520,6 @@ class AuthService extends ChangeNotifier {
     if (profile == null) {
       AppLogger.w('loginWithBiometric: fetchProfile falló tras refresh');
       return false;
-    }
-
-    // ✅ Actualizar el refresh token biométrico si tryRefresh lo rotó
-    final newRefreshToken = refreshToken;
-    if (newRefreshToken != null && newRefreshToken != biometricRefreshToken) {
-      await _storage.write(
-          key: AppConstants.keyBiometricRefreshToken, value: newRefreshToken);
-      AppLogger.d('loginWithBiometric: refresh token biométrico actualizado');
     }
 
     AppLogger.i('loginWithBiometric: login biométrico exitoso');

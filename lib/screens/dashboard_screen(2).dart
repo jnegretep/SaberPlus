@@ -13,7 +13,6 @@ import '../widgets/dashboard/horizontal_preview_list.dart';
 import '../widgets/dashboard/preview_card.dart';
 import '../widgets/dashboard/section_header.dart';
 import '../widgets/dashboard/section_card.dart';
-import '../widgets/dashboard/continue_learning_card.dart';
 import 'course_list_screen.dart';
 import 'challenge_list_screen.dart';
 import '../widgets/global_scaffold.dart';
@@ -241,11 +240,6 @@ class _DashboardScreenState extends State<DashboardScreen>
                                     );
                                   },
                                 ),
-
-                                const SizedBox(height: 24),
-
-                                // Continua donde quedaste
-                                const ContinueLearningCard(),
 
                                 const SizedBox(height: 24),
 

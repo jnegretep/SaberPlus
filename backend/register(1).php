@@ -19,13 +19,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
-    echo json_encode(['status' => 'error', 'msg' => 'MÃ©todo no permitido']);
+    echo json_encode(['status' => 'error', 'msg' => 'Método no permitido']);
     exit;
 }
 
 // ======== DEPENDENCIAS =========
 require __DIR__ . '/includes/conexion.php';
-require __DIR__ . '/includes/config.php';
 require __DIR__ . '/vendor/autoload.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
@@ -36,7 +35,7 @@ function generateVerificationCode() {
     return str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 }
 
-// ======== LÃ“GICA DE ACCESO (TRIAL / FREE) =========
+// ======== LÓGICA DE ACCESO (TRIAL / FREE) =========
 $fechaLimite = '2026-03-01';
 if (date('Y-m-d') < $fechaLimite) {
     $accessLevel = 'trial';
@@ -47,13 +46,13 @@ if (date('Y-m-d') < $fechaLimite) {
 }
 
 try {
-    // ======== LECTURA Y VALIDACIÃ“N DEL JSON =========
+    // ======== LECTURA Y VALIDACIÓN DEL JSON =========
     $input = file_get_contents('php://input');
     $data = json_decode($input, true);
 
     if (json_last_error() !== JSON_ERROR_NONE) {
         http_response_code(400);
-        echo json_encode(['status'=>'error','msg'=>'JSON invÃ¡lido']);
+        echo json_encode(['status'=>'error','msg'=>'JSON inválido']);
         exit;
     }
 
@@ -76,11 +75,11 @@ try {
 
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         http_response_code(400);
-        echo json_encode(['status'=>'error','msg'=>'Email invÃ¡lido']);
+        echo json_encode(['status'=>'error','msg'=>'Email inválido']);
         exit;
     }
 
-    // ======== VALIDACIÃ“N DE EMAIL ÃšNICO =========
+    // ======== VALIDACIÓN DE EMAIL ÚNICO =========
     $stmt = $conexion->prepare("SELECT id_usuario, email_verificado FROM usuarios WHERE email = ? LIMIT 1");
     $stmt->execute([$email]);
     $existingUser = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -127,9 +126,8 @@ try {
             $updateAvatar->execute([$avatarFilename, $userId]);
         }
 
-        // Token mas largo para el enlace magico (32 chars)
-        $token = bin2hex(random_bytes(16));
-        $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
+        $token = generateVerificationCode();
+        $expiresAt = date('Y-m-d H:i:s', strtotime('+1 hour'));
 
         $checkVerif = $conexion->prepare("SELECT id FROM email_verifications WHERE user_id = ?");
         $checkVerif->execute([$userId]);
@@ -142,9 +140,7 @@ try {
             $insertToken->execute([$userId, $token, $expiresAt]);
         }
 
-        // Enviar correo con enlace magico
-        $verifyUrl = rtrim(BACKEND_BASE_URL, '/') . '/verify_email_link.php?token=' . $token;
-
+        // Enviar correo
         $mail = new PHPMailer(true);
         $mailSent = false;
 
@@ -153,33 +149,23 @@ try {
             $mail->Host       = 'smtp.gmail.com';
             $mail->SMTPAuth   = true;
             $mail->Username   = 'jnegretep24@gmail.com';
-            $mail->Password   = 'rwretxvadnprnrzl';
+            $mail->Password   = 'aqendcuwweqphwhg';
             $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
             $mail->Port       = 587;
             $mail->CharSet    = 'UTF-8';
 
-            $mail->setFrom('jnegretep24@gmail.com', 'Saber+');
+            $mail->setFrom('jnegretep24@gmail.com', 'PrepSaber');
             $mail->addAddress($email, $nombre);
 
             $mail->isHTML(true);
-            $mail->Subject = 'Confirma tu correo - Saber+';
+            $mail->Subject = 'Tu código de verificación - PrepSaber';
             $mail->Body    = "
-                <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>
-                    <h2 style='color: #1E4ED8;'>Hola, ".htmlspecialchars($nombre, ENT_QUOTES, 'UTF-8')."</h2>
-                    <p>Has solicitado un nuevo enlace de verificacion para tu cuenta en <b>Saber+</b>.</p>
-                    <p>Haz clic en el siguiente boton para confirmar tu correo electronico:</p>
-                    <div style='text-align: center; margin: 32px 0;'>
-                        <a href='{$verifyUrl}' style='background: #1E4ED8; color: white; padding: 16px 40px; border-radius: 12px; text-decoration: none; font-size: 18px; font-weight: bold; display: inline-block;'>
-                            Confirmar mi correo
-                        </a>
-                    </div>
-                    <p style='color: #666; font-size: 14px;'>O copia y pega este enlace en tu navegador:</p>
-                    <p style='word-break: break-all; color: #1E4ED8; font-size: 13px;'>{$verifyUrl}</p>
-                    <hr style='border: none; border-top: 1px solid #eee; margin: 24px 0;'>
-                    <p style='color: #999; font-size: 12px;'>Este enlace expirara en 24 horas. Si no solicitaste esta verificacion, ignora este correo.</p>
-                </div>
+                <h2>Hola, ".htmlspecialchars($nombre, ENT_QUOTES, 'UTF-8')."</h2>
+                <p>Se ha solicitado un nuevo código de verificación.</p>
+                <h3 style='font-size: 32px; color: #1E4ED8; letter-spacing: 8px; text-align: center;'>$token</h3>
+                <p>Este código expirará en 1 hora.</p>
             ";
-            $mail->AltBody = "Hola, $nombre\n\nConfirma tu correo en Saber+ visitando:\n$verifyUrl";
+            $mail->AltBody = "Hola, $nombre\nTu código es: $token";
 
             $mailSent = $mail->send();
         } catch (PHPMailerException $e) {
@@ -189,7 +175,7 @@ try {
         ob_clean();
         echo json_encode([
             'status'    => 'unverified',
-            'msg'       => 'Usuario existente no verificado. Se ha enviado un nuevo cÃ³digo.',
+            'msg'       => 'Usuario existente no verificado. Se ha enviado un nuevo código.',
             'mail_sent' => $mailSent,
             'user_id'   => $userId,
             'username'  => $moodleUsername,
@@ -199,14 +185,14 @@ try {
         exit;
     }
 
-    // ======== USUARIO YA EXISTE Y ESTÃ VERIFICADO =========
+    // ======== USUARIO YA EXISTE Y ESTÁ VERIFICADO =========
     if ($existingUser && $existingUser['email_verificado'] == 1) {
         http_response_code(409);
-        echo json_encode(['status'=>'error','msg'=>'El correo ya estÃ¡ registrado y verificado. Inicia sesiÃ³n.']);
+        echo json_encode(['status'=>'error','msg'=>'El correo ya está registrado y verificado. Inicia sesión.']);
         exit;
     }
 
-    // ======== CREACIÃ“N DE NUEVO USUARIO =========
+    // ======== CREACIÓN DE NUEVO USUARIO =========
     $moodleUsername = $username ?: ('u' . uniqid());
 
     $stmt = $conexion->prepare("
@@ -235,15 +221,13 @@ try {
 
     $userId = (int)$conexion->lastInsertId();
 
-    // ======== TOKEN DE VERIFICACION (enlace magico) =========
-    $token = bin2hex(random_bytes(16));
-    $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
+    // ======== TOKEN DE VERIFICACIÓN =========
+    $token = generateVerificationCode();
+    $expiresAt = date('Y-m-d H:i:s', strtotime('+1 hour'));
     $stmt = $conexion->prepare("INSERT INTO email_verifications (user_id, token, expires_at) VALUES (?, ?, ?)");
     $stmt->execute([$userId, $token, $expiresAt]);
 
-    // ======== ENVIO DE CORREO CON ENLACE MAGICO =========
-    $verifyUrl = rtrim(BACKEND_BASE_URL, '/') . '/verify_email_link.php?token=' . $token;
-
+    // ======== ENVÍO DE CORREO =========
     $mail = new PHPMailer(true);
     $mailSent = false;
 
@@ -252,32 +236,23 @@ try {
         $mail->Host       = 'smtp.gmail.com';
         $mail->SMTPAuth   = true;
         $mail->Username   = 'jnegretep24@gmail.com';
-        $mail->Password   = 'rwretxvadnprnrzl';
+        $mail->Password   = 'aqendcuwweqphwhg';
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port       = 587;
         $mail->CharSet    = 'UTF-8';
 
-        $mail->setFrom('jnegretep24@gmail.com', 'Saber+');
+        $mail->setFrom('jnegretep24@gmail.com', 'PrepSaber');
         $mail->addAddress($email, $nombre);
 
         $mail->isHTML(true);
-        $mail->Subject = 'Confirma tu correo - Saber+';
+        $mail->Subject = 'Verifica tu correo - PrepSaber';
         $mail->Body    = "
-            <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>
-                <h2 style='color: #1E4ED8;'>Hola, ".htmlspecialchars($nombre, ENT_QUOTES, 'UTF-8')."</h2>
-                <p>Gracias por registrarte en <b>Saber+</b>. Para completar tu registro, confirma tu correo electronico:</p>
-                <div style='text-align: center; margin: 32px 0;'>
-                    <a href='{$verifyUrl}' style='background: #1E4ED8; color: white; padding: 16px 40px; border-radius: 12px; text-decoration: none; font-size: 18px; font-weight: bold; display: inline-block;'>
-                        Confirmar mi correo
-                    </a>
-                </div>
-                <p style='color: #666; font-size: 14px;'>O copia y pega este enlace en tu navegador:</p>
-                <p style='word-break: break-all; color: #1E4ED8; font-size: 13px;'>{$verifyUrl}</p>
-                <hr style='border: none; border-top: 1px solid #eee; margin: 24px 0;'>
-                <p style='color: #999; font-size: 12px;'>Este enlace expirara en 24 horas. Si no creaste esta cuenta, ignora este correo.</p>
-            </div>
+            <h2>Hola, ".htmlspecialchars($nombre, ENT_QUOTES, 'UTF-8')."</h2>
+            <p>Gracias por registrarte en <b>PrepSaber</b>.</p>
+            <h3 style='font-size: 32px; color: #1E4ED8; letter-spacing: 8px; text-align: center;'>$token</h3>
+            <p>Este código expirará en 1 hora.</p>
         ";
-        $mail->AltBody = "Hola, $nombre\n\nConfirma tu correo en Saber+ visitando:\n$verifyUrl";
+        $mail->AltBody = "Hola, $nombre\nTu código es: $token";
 
         $mailSent = $mail->send();
     } catch (PHPMailerException $e) {

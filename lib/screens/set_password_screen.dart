@@ -1,5 +1,5 @@
-import '../config/env.dart';
 // set_password_screen.dart - Rediseñado con estilo consistente
+import '../config/env.dart'; // ✅ Import necesario
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -50,18 +50,16 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
   Color _strengthColor = AppColors.textDisabled;
 
   @override
-void initState() {
-  super.initState();
+  void initState() {
+    super.initState();
+    resetToken = widget.resetToken;
 
-  resetToken = widget.resetToken; // ✅ FIX CRÍTICO
-
-  _confirmCtrl.addListener(_checkPasswordsMatch);
-  _passCtrl.addListener(() {
-    _checkPasswordsMatch();
-    _checkPasswordStrength();
-  });
-}
-
+    _confirmCtrl.addListener(_checkPasswordsMatch);
+    _passCtrl.addListener(() {
+      _checkPasswordsMatch();
+      _checkPasswordStrength();
+    });
+  }
 
   void _checkPasswordsMatch() {
     final pass = _passCtrl.text.trim();
@@ -103,28 +101,28 @@ void initState() {
 
     // Verificar longitud
     if (password.length >= 8) strength += 0.25;
-    
+
     // Verificar letras mayúsculas y minúsculas
     if (password.contains(RegExp(r'[A-Z]')) && password.contains(RegExp(r'[a-z]'))) {
       strength += 0.25;
     }
-    
+
     // Verificar números
     if (password.contains(RegExp(r'[0-9]'))) strength += 0.25;
-    
+
     // Verificar caracteres especiales
     if (password.contains(RegExp(r'[!@#$%^&*(),.?":{}|<>]'))) strength += 0.25;
 
     // Determinar mensaje y color
     if (strength < 0.5) {
       message = 'Débil';
-      color = AppColors.error; // Rojo
+      color = AppColors.error;
     } else if (strength < 0.75) {
       message = 'Media';
-      color = AppColors.warning; // Amarillo
+      color = AppColors.warning;
     } else {
       message = 'Fuerte';
-      color = AppColors.successDark; // Verde
+      color = AppColors.successDark;
     }
 
     setState(() {
@@ -156,7 +154,9 @@ void initState() {
     setState(() => _loading = true);
 
     try {
-      final url = Uri.parse("Env.apiBaseUrl/set_password.php");
+      // ✅ FIX: usar `${Env.apiBaseUrl}` en lugar de "Env.apiBaseUrl"
+      final url = Uri.parse("${Env.apiBaseUrl}/set_password.php");
+
       final response = await http.post(
         url,
         headers: {"Content-Type": "application/json"},
@@ -164,12 +164,11 @@ void initState() {
           'user_id': widget.userId,
           'email': widget.email,
           'password': pass,
-          'reset_token': resetToken, // null en registro, presente en recuperación
+          'reset_token': resetToken,
         }),
       );
 
       if (response.statusCode == 200 && response.body.trim().isEmpty) {
-        // Limpiar solo keys de autenticación (no todo el storage)
         const secureStorage = FlutterSecureStorage();
         await secureStorage.delete(key: AppConstants.keyJwt);
         await secureStorage.delete(key: AppConstants.keyRefreshToken);
@@ -186,7 +185,6 @@ void initState() {
 
       final data = jsonDecode(response.body);
       if (data['status'] == 'ok') {
-        // Limpiar solo keys de autenticación (no todo el storage)
         const secureStorage = FlutterSecureStorage();
         await secureStorage.delete(key: AppConstants.keyJwt);
         await secureStorage.delete(key: AppConstants.keyRefreshToken);
@@ -359,7 +357,7 @@ void initState() {
                       ),
                     ),
                     const SizedBox(height: 20),
-                    
+
                     // Título
                     const Text(
                       'Establece tu contraseña',
@@ -378,9 +376,9 @@ void initState() {
                         color: AppColors.textOnPrimarySubtle,
                       ),
                     ),
-                    
+
                     const SizedBox(height: 20),
-                    
+
                     // Progreso
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,

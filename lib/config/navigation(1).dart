@@ -153,9 +153,6 @@ class Nav {
   // ── Ranking de XP ──
   static void goXpRanking(BuildContext context) => context.push('/xp-ranking');
 
-  // ── Retos Diarios ──
-  static void goDailyChallenges(BuildContext context) => context.push('/daily-challenges');
-
   // ── Retos ──
   static void goChallenges(BuildContext context) => context.push('/challenges');
   static void goCreateChallenge(BuildContext context) => context.push('/challenges/create');

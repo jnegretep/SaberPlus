@@ -1,5 +1,5 @@
-import '../config/env.dart';
 // register_step2.dart - Rediseñado con estilo consistente
+import '../config/env.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -50,7 +50,7 @@ class _RegisterStep2State extends State<RegisterStep2> {
 
   final _colegioController = TextEditingController();
 
-  final baseUrl = "Env.apiBaseUrl";
+  final baseUrl = Env.apiBaseUrl;
 
   @override
   void initState() {
@@ -167,12 +167,14 @@ class _RegisterStep2State extends State<RegisterStep2> {
               backgroundColor: AppColors.successDark,
             ),
           );
+          // ✅ FIX: pasar userId como int (no String)
+          final userId = jsonResp['user_id'] as int;
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
               builder: (context) => VerifyEmailScreen(
                 email: widget.email,
-                userId: jsonResp['user_id'].toString(),
+                userId: userId,
                 selectedImage: widget.selectedImage,
                 selectedAvatarAsset: widget.selectedAvatarAsset,
               ),
@@ -188,8 +190,7 @@ class _RegisterStep2State extends State<RegisterStep2> {
       } else {
         _showDialog(
           title: "Error",
-          message:
-              "Respuesta inesperada del servidor (${response.statusCode}).",
+          message: "Respuesta inesperada del servidor (${response.statusCode}).",
           success: false,
         );
       }
@@ -241,22 +242,16 @@ class _RegisterStep2State extends State<RegisterStep2> {
                 width: 60,
                 height: 60,
                 decoration: BoxDecoration(
-                  color: success
-                      ? AppColors.successLight
-                      : AppColors.errorLight,
+                  color: success ? AppColors.successLight : AppColors.errorLight,
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: success
-                        ? AppColors.successDark
-                        : AppColors.errorFg,
+                    color: success ? AppColors.successDark : AppColors.errorFg,
                     width: 2,
                   ),
                 ),
                 child: Icon(
                   success ? Icons.check_rounded : Icons.error_outline_rounded,
-                  color: success
-                      ? AppColors.successDark
-                      : AppColors.errorDark,
+                  color: success ? AppColors.successDark : AppColors.errorDark,
                   size: 32,
                 ),
               ),
@@ -284,9 +279,7 @@ class _RegisterStep2State extends State<RegisterStep2> {
                 child: ElevatedButton(
                   onPressed: () => Navigator.pop(context),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: success
-                        ? AppColors.successDark
-                        : AppColors.errorDark,
+                    backgroundColor: success ? AppColors.successDark : AppColors.errorDark,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -594,7 +587,6 @@ class _RegisterStep2State extends State<RegisterStep2> {
                       color: AppColors.textOnPrimary,
                     ),
                     const SizedBox(height: 16),
-
                     // Progreso
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -617,9 +609,7 @@ class _RegisterStep2State extends State<RegisterStep2> {
                   ],
                 ),
               ),
-
               const SizedBox(height: 32),
-
               // 🔹 Avatar de visualización
               Container(
                 width: 100,
@@ -663,7 +653,6 @@ class _RegisterStep2State extends State<RegisterStep2> {
                             ),
                 ),
               ),
-
               const SizedBox(height: 16),
               const Text(
                 'Completa tus datos institucionales',
@@ -682,9 +671,7 @@ class _RegisterStep2State extends State<RegisterStep2> {
                   fontSize: 14,
                 ),
               ),
-
               const SizedBox(height: 32),
-
               // 🔹 Formulario
               Container(
                 padding: const EdgeInsets.all(24),
@@ -717,13 +704,10 @@ class _RegisterStep2State extends State<RegisterStep2> {
                           setState(() => _departamento = v);
                           if (v != null) _loadCiudades(v);
                         },
-                        validator: (v) =>
-                            v == null ? "Selecciona un departamento" : null,
+                        validator: (v) => v == null ? "Selecciona un departamento" : null,
                         isLoading: _loadingDepartamentos,
                       ),
-
                       const SizedBox(height: 20),
-
                       // Ciudad/Municipio
                       _buildDropdownField(
                         label: 'Ciudad / Municipio',
@@ -736,13 +720,10 @@ class _RegisterStep2State extends State<RegisterStep2> {
                             _loadColegios(_departamento!, v);
                           }
                         },
-                        validator: (v) =>
-                            v == null ? "Selecciona una ciudad" : null,
+                        validator: (v) => v == null ? "Selecciona una ciudad" : null,
                         isLoading: _loadingCiudades,
                       ),
-
                       const SizedBox(height: 20),
-
                       // Institución educativa (autocompletado)
                       _buildInputField(
                         label: 'Institución educativa',
@@ -753,16 +734,13 @@ class _RegisterStep2State extends State<RegisterStep2> {
                           _colegio = v;
                           _filterColegios(v);
                         },
-                        validator: (v) => v == null || v.isEmpty
-                            ? "Ingresa o selecciona tu colegio"
-                            : null,
+                        validator: (v) =>
+                            v == null || v.isEmpty ? "Ingresa o selecciona tu colegio" : null,
                         showSuggestions:
                             _filteredColegios.isNotEmpty && _colegioController.text.isNotEmpty,
                         suggestions: _filteredColegios,
                       ),
-
                       const SizedBox(height: 20),
-
                       // Grado
                       _buildDropdownField(
                         label: 'Grado académico',
@@ -776,12 +754,9 @@ class _RegisterStep2State extends State<RegisterStep2> {
                           "Graduado",
                         ],
                         onChanged: (v) => setState(() => _grado = v),
-                        validator: (v) =>
-                            v == null ? "Selecciona tu grado" : null,
+                        validator: (v) => v == null ? "Selecciona tu grado" : null,
                       ),
-
                       const SizedBox(height: 32),
-
                       // Botón Registrar
                       SizedBox(
                         height: 52,
@@ -795,10 +770,7 @@ class _RegisterStep2State extends State<RegisterStep2> {
                                 gradient: _isLoading
                                     ? null
                                     : const LinearGradient(
-                                        colors: [
-                                          AppColors.primary,
-                                          AppColors.primaryLight
-                                        ],
+                                        colors: [AppColors.primary, AppColors.primaryLight],
                                         begin: Alignment.centerLeft,
                                         end: Alignment.centerRight,
                                       ),
@@ -807,15 +779,12 @@ class _RegisterStep2State extends State<RegisterStep2> {
                                     ? null
                                     : [
                                         BoxShadow(
-                                          color: AppColors.primary
-                                              .withOpacity(0.3),
+                                          color: AppColors.primary.withOpacity(0.3),
                                           blurRadius: 12,
                                           offset: const Offset(0, 6),
                                         ),
                                       ],
-                                color: _isLoading
-                                    ? AppColors.textDisabled
-                                    : null,
+                                color: _isLoading ? AppColors.textDisabled : null,
                               ),
                               child: Center(
                                 child: _isLoading
@@ -824,8 +793,7 @@ class _RegisterStep2State extends State<RegisterStep2> {
                                         strokeWidth: 2,
                                       )
                                     : const Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
+                                        mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
                                           Text(
                                             'COMPLETAR REGISTRO',
@@ -849,9 +817,7 @@ class _RegisterStep2State extends State<RegisterStep2> {
                           ),
                         ),
                       ),
-
                       const SizedBox(height: 20),
-
                       // Información adicional
                       Container(
                         padding: const EdgeInsets.all(16),
@@ -886,9 +852,7 @@ class _RegisterStep2State extends State<RegisterStep2> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 40),
-
               // Footer
               Text(
                 'Paso 2 de 3 • PrepSaber © 2024',

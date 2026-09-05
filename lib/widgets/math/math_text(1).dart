@@ -1,20 +1,19 @@
 // lib/widgets/math/math_text.dart
-// Saber+ - Renderizado mejorado de texto con ecuaciones matematicas
+// Saber+ — Renderizado mejorado de texto con ecuaciones matemáticas
 //
-// Soporta multiples formatos de ecuaciones que Moodle usa:
+// Soporta múltiples formatos de ecuaciones que Moodle usa:
 // 1. LaTeX inline: \( ... \) o $...$
 // 2. LaTeX display: \[ ... \] o $$...$$
 // 3. MathML: <math>...</math>
 // 4. HTML sub/sup: <sub>...</sub>, <sup>...</sup>
 // 5. Moodle spans: <span class="math">...</span>
 //
-// Caracteristicas:
+// Características:
 // - Fallback graceful: si el LaTeX falla, muestra el texto crudo
 // - Overflow horizontal: ecuaciones largas se hacen scrollables
-// - Tamano adaptativo segun contexto (opcion vs pregunta)
+// - Tamaño adaptativo según contexto (opción vs pregunta)
 // - Dark mode support
 // - Renderizado mixto: HTML + LaTeX en el mismo texto
-// - Limpieza de tags HTML mezclados dentro del LaTeX por Moodle
 
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
@@ -22,7 +21,15 @@ import 'package:flutter_math_fork/flutter_math.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/app_logger.dart';
 
-/// Widget que renderiza texto HTML con ecuaciones matematicas embebidas.
+/// Widget que renderiza texto HTML con ecuaciones matemáticas embebidas.
+///
+/// Uso:
+/// ```dart
+/// MathText(
+///   html: 'El área de un círculo es \( A = \pi r^2 \)',
+///   isOption: false,
+/// )
+/// ```
 class MathText extends StatelessWidget {
   final String html;
   final bool isOption;
@@ -44,8 +51,10 @@ class MathText extends StatelessWidget {
             ? AppColors.darkTextPrimary
             : AppColors.borderDark);
 
+    // Normalizar el HTML: convertir todos los formatos a \(...\) y \[...\]
     final normalized = _normalizeMath(html);
 
+    // Si no hay ecuaciones, renderizar como HTML puro
     if (!_hasMath(normalized)) {
       return Html(
         data: normalized,
@@ -53,6 +62,7 @@ class MathText extends StatelessWidget {
       );
     }
 
+    // Renderizar texto + ecuaciones mezclados
     final widgets = _buildMixedWidgets(normalized, fontSize, color, context);
 
     return Wrap(
@@ -70,114 +80,40 @@ class MathText extends StatelessWidget {
     // 1. Convertir $$...$$ a \[...\] (display math)
     result = result.replaceAllMapped(
       RegExp(r'\$\$(.+?)\$\$', dotAll: true),
-      (m) => '\\[${_cleanLatex(m.group(1)!)}\\]',
+      (m) => '\\[${m.group(1)}\\]',
     );
 
-    // 2. Convertir $...$ a \(...\) (inline math)
+    // 2. Convertir $...$ a \(...\) (inline math) — pero no los $$ ya convertidos
     result = result.replaceAllMapped(
       RegExp(r'(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)', dotAll: true),
-      (m) => '\\(${_cleanLatex(m.group(1)!)}\\)',
+      (m) => '\\(${m.group(1)}\\)',
     );
 
-    // 3. MathML <math>...</math> -> extraer contenido
+    // 3. MathML <math>...</math> → extraer el contenido y convertir a LaTeX
     result = result.replaceAllMapped(
       RegExp(r'<math[^>]*>(.*?)</math>', dotAll: true),
-      (m) => '\\(${_cleanLatex(m.group(1)!)}\\)',
+      (m) => '\\(${m.group(1)}\\)',
     );
 
-    // 4. Moodle spans: <span class="math">...</span> -> \(...\)
+    // 4. Moodle spans: <span class="math">...</span> → \(...\)
     result = result.replaceAllMapped(
       RegExp(r'<span[^>]*class="[^"]*math[^"]*"[^>]*>(.*?)</span>', dotAll: true),
-      (m) => '\\(${_cleanLatex(m.group(1)!)}\\)',
+      (m) => '\\(${m.group(1)}\\)',
     );
 
-    // 5. Moodle divs: <div class="math">...</div> -> \(...\)
-    result = result.replaceAllMapped(
-      RegExp(r'<div[^>]*class="[^"]*math[^"]*"[^>]*>(.*?)</div>', dotAll: true),
-      (m) => '\\(${_cleanLatex(m.group(1)!)}\\)',
-    );
-
-    // 6. Convertir \begin{equation}...\end{equation} a \[...\]
-    result = result.replaceAllMapped(
-      RegExp(r'\\begin\{equation\}(.+?)\\end\{equation\}', dotAll: true),
-      (m) => '\\[${_cleanLatex(m.group(1)!)}\\]',
-    );
-
-    // 7. Convertir \begin{align}...\end{align} a \[...\]
-    result = result.replaceAllMapped(
-      RegExp(r'\\begin\{align\}(.+?)\\end\{align\}', dotAll: true),
-      (m) => '\\[${_cleanLatex(m.group(1)!)}\\]',
-    );
-
-    // 8. Eliminar \displaystyle (a veces Moodle lo pone y rompe el parseo)
-    result = result.replaceAll(r'\displaystyle', '');
-
-    // 9. Limpiar entidades HTML comunes
+    // 5. Limpiar entidades HTML comunes en LaTeX
     result = result
         .replaceAll('&lt;', '<')
         .replaceAll('&gt;', '>')
         .replaceAll('&amp;', '&')
         .replaceAll('&quot;', '"')
         .replaceAll('&apos;', "'")
-        .replaceAll('&nbsp;', ' ')
-        .replaceAll('&#39;', "'")
-        .replaceAll('&times;', '\u00d7')
-        .replaceAll('&divide;', '\u00f7')
-        .replaceAll('&plusmn;', '\u00b1')
-        .replaceAll('&le;', '\u2264')
-        .replaceAll('&ge;', '\u2265')
-        .replaceAll('&ne;', '\u2260')
-        .replaceAll('&approx;', '\u2248')
-        .replaceAll('&radic;', '\u221a')
-        .replaceAll('&sum;', '\u2211')
-        .replaceAll('&int;', '\u222b')
-        .replaceAll('&prod;', '\u220f')
-        .replaceAll('&infin;', '\u221e')
-        .replaceAll('&pi;', '\u03c0')
-        .replaceAll('&alpha;', '\u03b1')
-        .replaceAll('&beta;', '\u03b2')
-        .replaceAll('&gamma;', '\u03b3')
-        .replaceAll('&delta;', '\u03b4')
-        .replaceAll('&theta;', '\u03b8')
-        .replaceAll('&lambda;', '\u03bb')
-        .replaceAll('&mu;', '\u03bc')
-        .replaceAll('&sigma;', '\u03c3')
-        .replaceAll('&omega;', '\u03c9')
-        .replaceAll('&deg;', '\u00b0')
-        .replaceAll('&middot;', '\u00b7');
+        .replaceAll('&nbsp;', ' ');
 
     return result;
   }
 
-  /// Limpia el contenido LaTeX de tags HTML y entidades que Moodle mezcla.
-  /// Moodle a veces pone <span>, <div>, <br> dentro del LaTeX que rompen
-  /// el renderizado de flutter_math.
-  String _cleanLatex(String latex) {
-    return latex
-        // Eliminar tags HTML que Moodle mezcla dentro del LaTeX
-        .replaceAll(RegExp(r'<br\s*/?>'), ' ')
-        .replaceAll(RegExp(r'</?span[^>]*>'), '')
-        .replaceAll(RegExp(r'</?div[^>]*>'), '')
-        .replaceAll(RegExp(r'</?p[^>]*>'), '')
-        .replaceAll(RegExp(r'</?b>'), '')
-        .replaceAll(RegExp(r'</?i>'), '')
-        .replaceAll(RegExp(r'</?strong>'), '')
-        .replaceAll(RegExp(r'</?em>'), '')
-        // Eliminar atributos class y style
-        .replaceAll(RegExp(r'\s+class="[^"]*"'), '')
-        .replaceAll(RegExp(r'\s+style="[^"]*"'), '')
-        // Limpiar entidades HTML
-        .replaceAll('&lt;', '<')
-        .replaceAll('&gt;', '>')
-        .replaceAll('&amp;', '&')
-        .replaceAll('&nbsp;', ' ')
-        .replaceAll('&#39;', "'")
-        // Limpiar espacios excesivos
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-  }
-
-  /// Verifica si el texto contiene ecuaciones matematicas.
+  /// Verifica si el texto contiene ecuaciones matemáticas.
   bool _hasMath(String text) {
     return text.contains(r'\(') ||
         text.contains(r'\[') ||
@@ -197,7 +133,7 @@ class MathText extends StatelessWidget {
 
     int last = 0;
     for (final match in matches) {
-      // Texto antes de la ecuacion
+      // Texto antes de la ecuación
       if (match.start > last) {
         final beforeText = text.substring(last, match.start);
         if (beforeText.trim().isNotEmpty) {
@@ -208,7 +144,7 @@ class MathText extends StatelessWidget {
         }
       }
 
-      // La ecuacion
+      // La ecuación
       final rawEq = match.group(0)!;
       final isDisplay = rawEq.startsWith(r'\[');
       final latex = rawEq
@@ -230,7 +166,7 @@ class MathText extends StatelessWidget {
       last = match.end;
     }
 
-    // Texto despues de la ultima ecuacion
+    // Texto después de la última ecuación
     if (last < text.length) {
       final afterText = text.substring(last);
       if (afterText.trim().isNotEmpty) {
@@ -267,7 +203,7 @@ class MathText extends StatelessWidget {
   }
 }
 
-/// Widget que renderiza una sola ecuacion LaTeX con fallback.
+/// Widget que renderiza una sola ecuación LaTeX con fallback.
 class _MathEquation extends StatelessWidget {
   final String latex;
   final bool isDisplay;
@@ -283,6 +219,7 @@ class _MathEquation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Si es display math (\[...\]), mostrar en su propia línea con padding
     if (isDisplay) {
       return Container(
         width: double.infinity,
@@ -293,6 +230,7 @@ class _MathEquation extends StatelessWidget {
       );
     }
 
+    // Inline math — dentro del flujo del texto
     return Padding(
       padding: EdgeInsets.symmetric(
         horizontal: 2,
@@ -310,10 +248,9 @@ class _MathEquation extends StatelessWidget {
           fontSize: isDisplay ? fontSize * 1.15 : fontSize,
           color: color,
         ),
-        // Forzar estilo de visualización para que coincida con Moodle
-        mathStyle: isDisplay ? MathStyle.display : MathStyle.text,
       );
 
+      // Para ecuaciones potencialmente anchas, permitir scroll horizontal
       if (_isLikelyWide(latex)) {
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -323,18 +260,23 @@ class _MathEquation extends StatelessWidget {
 
       return mathWidget;
     } catch (e) {
+      // Fallback: mostrar el LaTeX como texto monoespaciado
       AppLogger.w('Math render failed for "$latex": $e');
       return _buildFallback();
     }
   }
 
+  /// Detecta si una ecuación es probablemente muy ancha (fracciones largas, sumatorias, etc.)
   bool _isLikelyWide(String latex) {
+    // Heurística: si tiene fracciones anidadas, sumatorias, o es muy larga
     final hasFraction = latex.contains(r'\frac') || latex.contains(r'\dfrac');
     final hasSummation = latex.contains(r'\sum') || latex.contains(r'\int');
     final isLong = latex.length > 50;
+
     return (hasFraction && isLong) || hasSummation || isLong;
   }
 
+  /// Fallback cuando el LaTeX no se puede renderizar.
   Widget _buildFallback() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

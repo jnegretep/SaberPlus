@@ -7,6 +7,8 @@ import '../widgets/dashboard/preview_card.dart';
 import '../screens/upgrade_screen.dart';
 import '../config/navigation.dart';
 import '../core/theme/app_colors.dart';
+import '../core/services/course_cache_service.dart';
+import '../core/utils/app_logger.dart';
 
 class CourseListScreen extends StatefulWidget {
   final String category; // 'courses' | 'simulacros' | 'retos'
@@ -32,15 +34,51 @@ class _CourseListScreenState extends State<CourseListScreen> with RouteAware {
     _futureCourses = _loadCoursesWithAttempts(api);
   }
 
+  /// ✅ FASE 4: Carga cursos con caché offline.
+  /// - Primero intenta caché (TTL 30 min)
+  /// - Si no hay caché o expiró, carga desde API y guarda en caché
+  /// - Si no hay internet, usa caché expirado (mejor que nada)
   Future<List<Course>> _loadCoursesWithAttempts(ApiService api) async {
-    var courses = await api.fetchCourses(category: widget.category);
+    // ✅ Usar caché para la lista de cursos
+    var courses = await CourseCacheService.fetchCoursesWithCache(
+      api: api,
+      category: widget.category,
+    );
 
     if (widget.category == 'simulacros') {
-      final attempts = await api.fetchSimulacroAttempts(api.auth.userId!);
-      for (var c in courses) {
-        if (attempts.contains(c.id)) {
-          c.attempted = true;
+      try {
+        final attempts = await api.fetchSimulacroAttempts(api.auth.userId!);
+        for (var c in courses) {
+          if (attempts.contains(c.id)) {
+            c.attempted = true;
+          }
         }
+      } catch (e) {
+        AppLogger.w('No se pudieron cargar attempts (¿offline?): $e');
+        // Continuamos sin marcar attempts — los cursos igual se muestran
+      }
+    }
+    return courses;
+  }
+
+  /// Refresca forzando ignorar caché (pull-to-refresh)
+  Future<List<Course>> _loadCoursesWithAttemptsForce(ApiService api) async {
+    var courses = await CourseCacheService.fetchCoursesWithCache(
+      api: api,
+      category: widget.category,
+      forceRefresh: true,
+    );
+
+    if (widget.category == 'simulacros') {
+      try {
+        final attempts = await api.fetchSimulacroAttempts(api.auth.userId!);
+        for (var c in courses) {
+          if (attempts.contains(c.id)) {
+            c.attempted = true;
+          }
+        }
+      } catch (e) {
+        AppLogger.w('No se pudieron cargar attempts (¿offline?): $e');
       }
     }
     return courses;
@@ -66,7 +104,7 @@ class _CourseListScreenState extends State<CourseListScreen> with RouteAware {
               return const Center(child: CircularProgressIndicator());
             }
             if (snap.hasError) {
-              return Center(child: Text('Error: ${snap.error}'));
+              return _buildErrorState(snap.error);
             }
 
             var courses = snap.data ?? [];
@@ -83,113 +121,189 @@ class _CourseListScreenState extends State<CourseListScreen> with RouteAware {
               courses = _orderedCourses(courses);
             }
 
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ───── Header ─────
-                  Text(
-                    widget.title,
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${courses.length} disponibles',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: AppColors.textTertiary,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // ───── Grid ─────
-                  Expanded(
-                    child: GridView.builder(
-                      itemCount: courses.length,
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        mainAxisSpacing: 14,
-                        crossAxisSpacing: 14,
-                        childAspectRatio: 0.95,
+            // ✅ FASE 4: Pull-to-refresh con caché
+            return RefreshIndicator(
+              onRefresh: () async {
+                final api = context.read<ApiService>();
+                setState(() {
+                  _futureCourses = _loadCoursesWithAttemptsForce(api);
+                });
+                await _futureCourses;
+              },
+              color: AppColors.primary,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ───── Header ─────
+                    Text(
+                      widget.title,
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
                       ),
-                      itemBuilder: (ctx, i) {
-                        final c = courses[i];
-
-                        final enabledByProgress = _isEnabled(c, courses);
-                        final imagePath = _imageForCategory(widget.category, i);
-
-                        // 🔹 CORRECCIÓN: Maneja cuando locked es null
-                        final isPaywallLocked = c.locked ?? false;
-                        final isLocked = isPaywallLocked || !enabledByProgress;
-
-                        return PreviewCard(
-                          icon: Icons.school,
-                          title: c.name,
-                          subtitle: widget.category == 'simulacros'
-                              ? 'Simulacro'
-                              : 'Curso',
-                          imagePath: imagePath,
-                          color: AppColors.primary,
-                          locked: isLocked,
-                          completed: c.attempted,
-onTap: () async {
-  // 1️⃣ Bloqueado por PLAN → PAYWALL
-  if (isPaywallLocked) {
-    final upgradeResult = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const UpgradeScreen(),
-      ),
-    );
-    
-    // Si el upgrade fue exitoso (true), recargar cursos
-    if (upgradeResult == true) {
-      final api = context.read<ApiService>();
-      setState(() {
-        _futureCourses = _loadCoursesWithAttempts(api);
-      });
-    }
-    return;
-  }
-
-  // 2️⃣ Bloqueado por PROGRESIÓN
-  if (!enabledByProgress) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Debes completar el simulacro anterior.',
-        ),
-      ),
-    );
-    return;
-  }
-
-  // 3️⃣ Acceso normal
-  Nav.goCourseContents(
-    context,
-    courseId: c.id,
-    courseName: c.name,
-  );
-
-  final api = context.read<ApiService>();
-  setState(() {
-    _futureCourses = _loadCoursesWithAttempts(api);
-  });
-},
-                        );
-                      },
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 4),
+                    Text(
+                      '${courses.length} disponibles',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textTertiary,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // ───── Grid ─────
+                    Expanded(
+                      child: GridView.builder(
+                        itemCount: courses.length,
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          mainAxisSpacing: 14,
+                          crossAxisSpacing: 14,
+                          childAspectRatio: 0.95,
+                        ),
+                        itemBuilder: (ctx, i) {
+                          final c = courses[i];
+
+                          final enabledByProgress = _isEnabled(c, courses);
+                          final imagePath = _imageForCategory(widget.category, i);
+
+                          // 🔹 CORRECCIÓN: Maneja cuando locked es null
+                          final isPaywallLocked = c.locked ?? false;
+                          final isLocked = isPaywallLocked || !enabledByProgress;
+
+                          return PreviewCard(
+                            icon: Icons.school,
+                            title: c.name,
+                            subtitle: widget.category == 'simulacros'
+                                ? 'Simulacro'
+                                : 'Curso',
+                            imagePath: imagePath,
+                            color: AppColors.primary,
+                            locked: isLocked,
+                            completed: c.attempted,
+                            onTap: () async {
+                              // 1️⃣ Bloqueado por PLAN → PAYWALL
+                              if (isPaywallLocked) {
+                                final upgradeResult = await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const UpgradeScreen(),
+                                  ),
+                                );
+
+                                // Si el upgrade fue exitoso (true), recargar cursos
+                                if (upgradeResult == true) {
+                                  final api = context.read<ApiService>();
+                                  setState(() {
+                                    _futureCourses = _loadCoursesWithAttempts(api);
+                                  });
+                                }
+                                return;
+                              }
+
+                              // 2️⃣ Bloqueado por PROGRESIÓN
+                              if (!enabledByProgress) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Debes completar el simulacro anterior.',
+                                    ),
+                                  ),
+                                );
+                                return;
+                              }
+
+                              // 3️⃣ Acceso normal
+                              Nav.goCourseContents(
+                                context,
+                                courseId: c.id,
+                                courseName: c.name,
+                              );
+
+                              final api = context.read<ApiService>();
+                              setState(() {
+                                _futureCourses = _loadCoursesWithAttempts(api);
+                              });
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+
+  /// ✅ FASE 4: Estado de error mejorado (con sugerencia offline).
+  Widget _buildErrorState(dynamic error) {
+    final errorMsg = error.toString();
+    final isOffline = errorMsg.contains('SocketException') ||
+        errorMsg.contains('Failed host lookup') ||
+        errorMsg.contains('Connection refused');
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              isOffline ? Icons.wifi_off_rounded : Icons.error_outline_rounded,
+              size: 64,
+              color: AppColors.textDisabled,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              isOffline
+                  ? 'Sin conexión a internet'
+                  : 'Error al cargar cursos',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              isOffline
+                  ? 'Verifica tu conexión e inténtalo de nuevo.'
+                  : errorMsg,
+              style: TextStyle(
+                fontSize: 13,
+                color: AppColors.textTertiary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: () {
+                final api = context.read<ApiService>();
+                setState(() {
+                  _futureCourses = _loadCoursesWithAttemptsForce(api);
+                });
+              },
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Reintentar'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: AppColors.textOnPrimary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

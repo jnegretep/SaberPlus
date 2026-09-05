@@ -9,6 +9,8 @@ import '../config/navigation.dart';
 import '../core/theme/app_colors.dart';
 import '../core/services/course_cache_service.dart';
 import '../core/utils/app_logger.dart';
+import '../widgets/dashboard/continue_learning_card.dart';
+import '../widgets/search_bar_widget.dart';
 
 class CourseListScreen extends StatefulWidget {
   final String category; // 'courses' | 'simulacros' | 'retos'
@@ -26,12 +28,20 @@ class CourseListScreen extends StatefulWidget {
 
 class _CourseListScreenState extends State<CourseListScreen> with RouteAware {
   late Future<List<Course>> _futureCourses;
+  final _searchCtrl = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
     final api = context.read<ApiService>();
     _futureCourses = _loadCoursesWithAttempts(api);
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   /// ✅ FASE 4: Carga cursos con caché offline.
@@ -121,6 +131,14 @@ class _CourseListScreenState extends State<CourseListScreen> with RouteAware {
               courses = _orderedCourses(courses);
             }
 
+            // Filtrar por busqueda si hay query
+            if (_searchQuery.isNotEmpty) {
+              final query = _searchQuery.toLowerCase();
+              courses = courses
+                  .where((c) => c.name.toLowerCase().contains(query))
+                  .toList();
+            }
+
             // ✅ FASE 4: Pull-to-refresh con caché
             return RefreshIndicator(
               onRefresh: () async {
@@ -152,6 +170,18 @@ class _CourseListScreenState extends State<CourseListScreen> with RouteAware {
                         fontSize: 13,
                         color: AppColors.textTertiary,
                       ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Barra de busqueda
+                    SearchBarWidget(
+                      controller: _searchCtrl,
+                      onChanged: (value) {
+                        setState(() {
+                          _searchQuery = value;
+                        });
+                      },
+                      hintText: 'Buscar ${widget.title.toLowerCase()}...',
                     ),
                     const SizedBox(height: 16),
 
@@ -219,6 +249,12 @@ class _CourseListScreenState extends State<CourseListScreen> with RouteAware {
                               }
 
                               // 3️⃣ Acceso normal
+                              // Guardar como ultimo accedido para "Continua donde quedaste"
+                              ContinueLearningCard.saveLastAccessed(
+                                courseId: c.id,
+                                courseName: c.name,
+                                category: widget.category,
+                              );
                               Nav.goCourseContents(
                                 context,
                                 courseId: c.id,
