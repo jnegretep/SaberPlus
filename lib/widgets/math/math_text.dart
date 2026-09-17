@@ -1,20 +1,10 @@
 // lib/widgets/math/math_text.dart
-// Saber+ - Renderizado mejorado de texto con ecuaciones matematicas
+// Saber+ - Renderizado de texto con ecuaciones matematicas
 //
-// Soporta multiples formatos de ecuaciones que Moodle usa:
-// 1. LaTeX inline: \( ... \) o $...$
-// 2. LaTeX display: \[ ... \] o $$...$$
-// 3. MathML: <math>...</math>
-// 4. HTML sub/sup: <sub>...</sub>, <sup>...</sup>
-// 5. Moodle spans: <span class="math">...</span>
-//
-// Caracteristicas:
-// - Fallback graceful: si el LaTeX falla, muestra el texto crudo
-// - Overflow horizontal: ecuaciones largas se hacen scrollables
-// - Tamano adaptativo segun contexto (opcion vs pregunta)
-// - Dark mode support
-// - Renderizado mixto: HTML + LaTeX en el mismo texto
-// - Limpieza de tags HTML mezclados dentro del LaTeX por Moodle
+// FIX: Volviendo al enfoque simple que funcionaba.
+// NO normaliza $...$ (Moodle ya usa \(...\))
+// NO limpia el LaTeX con _cleanLatex (solo quita delimitadores)
+// Solo convierte $$...$$ y MathML que si son necesarios.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
@@ -22,7 +12,6 @@ import 'package:flutter_math_fork/flutter_math.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/app_logger.dart';
 
-/// Widget que renderiza texto HTML con ecuaciones matematicas embebidas.
 class MathText extends StatelessWidget {
   final String html;
   final bool isOption;
@@ -44,171 +33,38 @@ class MathText extends StatelessWidget {
             ? AppColors.darkTextPrimary
             : AppColors.borderDark);
 
-    final normalized = _normalizeMath(html);
+    // Solo normalizar $$...$$ a \[...\] y entidades HTML basicas
+    final normalized = _normalize(html);
 
-    if (!_hasMath(normalized)) {
+    // Buscar ecuaciones con el mismo regex que siempre funciono
+    final regex = RegExp(r'(\\\(.+?\\\)|\\\[.+?\\\])', dotAll: true);
+    final matches = regex.allMatches(normalized);
+
+    // Si no hay ecuaciones, renderizar como HTML puro
+    if (matches.isEmpty) {
       return Html(
         data: normalized,
         style: _htmlStyle(fontSize, lineHeight, color),
       );
     }
 
-    final widgets = _buildMixedWidgets(normalized, fontSize, color, context);
-
-    return Wrap(
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 2,
-      runSpacing: 2,
-      children: widgets,
-    );
-  }
-
-  /// Normaliza todos los formatos de ecuaciones a \(...\) y \[...\]
-  String _normalizeMath(String input) {
-    var result = input;
-
-    // 1. Convertir $$...$$ a \[...\] (display math)
-    result = result.replaceAllMapped(
-      RegExp(r'\$\$(.+?)\$\$', dotAll: true),
-      (m) => '\\[${_cleanLatex(m.group(1)!)}\\]',
-    );
-
-    // 2. Convertir $...$ a \(...\) (inline math)
-    result = result.replaceAllMapped(
-      RegExp(r'(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)', dotAll: true),
-      (m) => '\\(${_cleanLatex(m.group(1)!)}\\)',
-    );
-
-    // 3. MathML <math>...</math> -> extraer contenido
-    result = result.replaceAllMapped(
-      RegExp(r'<math[^>]*>(.*?)</math>', dotAll: true),
-      (m) => '\\(${_cleanLatex(m.group(1)!)}\\)',
-    );
-
-    // 4. Moodle spans: <span class="math">...</span> -> \(...\)
-    result = result.replaceAllMapped(
-      RegExp(r'<span[^>]*class="[^"]*math[^"]*"[^>]*>(.*?)</span>', dotAll: true),
-      (m) => '\\(${_cleanLatex(m.group(1)!)}\\)',
-    );
-
-    // 5. Moodle divs: <div class="math">...</div> -> \(...\)
-    result = result.replaceAllMapped(
-      RegExp(r'<div[^>]*class="[^"]*math[^"]*"[^>]*>(.*?)</div>', dotAll: true),
-      (m) => '\\(${_cleanLatex(m.group(1)!)}\\)',
-    );
-
-    // 6. Convertir \begin{equation}...\end{equation} a \[...\]
-    result = result.replaceAllMapped(
-      RegExp(r'\\begin\{equation\}(.+?)\\end\{equation\}', dotAll: true),
-      (m) => '\\[${_cleanLatex(m.group(1)!)}\\]',
-    );
-
-    // 7. Convertir \begin{align}...\end{align} a \[...\]
-    result = result.replaceAllMapped(
-      RegExp(r'\\begin\{align\}(.+?)\\end\{align\}', dotAll: true),
-      (m) => '\\[${_cleanLatex(m.group(1)!)}\\]',
-    );
-
-    // 8. Eliminar \displaystyle (a veces Moodle lo pone y rompe el parseo)
-    result = result.replaceAll(r'\displaystyle', '');
-
-    // 9. Limpiar entidades HTML comunes
-    result = result
-        .replaceAll('&lt;', '<')
-        .replaceAll('&gt;', '>')
-        .replaceAll('&amp;', '&')
-        .replaceAll('&quot;', '"')
-        .replaceAll('&apos;', "'")
-        .replaceAll('&nbsp;', ' ')
-        .replaceAll('&#39;', "'")
-        .replaceAll('&times;', '\u00d7')
-        .replaceAll('&divide;', '\u00f7')
-        .replaceAll('&plusmn;', '\u00b1')
-        .replaceAll('&le;', '\u2264')
-        .replaceAll('&ge;', '\u2265')
-        .replaceAll('&ne;', '\u2260')
-        .replaceAll('&approx;', '\u2248')
-        .replaceAll('&radic;', '\u221a')
-        .replaceAll('&sum;', '\u2211')
-        .replaceAll('&int;', '\u222b')
-        .replaceAll('&prod;', '\u220f')
-        .replaceAll('&infin;', '\u221e')
-        .replaceAll('&pi;', '\u03c0')
-        .replaceAll('&alpha;', '\u03b1')
-        .replaceAll('&beta;', '\u03b2')
-        .replaceAll('&gamma;', '\u03b3')
-        .replaceAll('&delta;', '\u03b4')
-        .replaceAll('&theta;', '\u03b8')
-        .replaceAll('&lambda;', '\u03bb')
-        .replaceAll('&mu;', '\u03bc')
-        .replaceAll('&sigma;', '\u03c3')
-        .replaceAll('&omega;', '\u03c9')
-        .replaceAll('&deg;', '\u00b0')
-        .replaceAll('&middot;', '\u00b7');
-
-    return result;
-  }
-
-  /// Limpia el contenido LaTeX de tags HTML y entidades que Moodle mezcla.
-  /// Moodle a veces pone <span>, <div>, <br> dentro del LaTeX que rompen
-  /// el renderizado de flutter_math.
-  String _cleanLatex(String latex) {
-    return latex
-        // Eliminar tags HTML que Moodle mezcla dentro del LaTeX
-        .replaceAll(RegExp(r'<br\s*/?>'), ' ')
-        .replaceAll(RegExp(r'</?span[^>]*>'), '')
-        .replaceAll(RegExp(r'</?div[^>]*>'), '')
-        .replaceAll(RegExp(r'</?p[^>]*>'), '')
-        .replaceAll(RegExp(r'</?b>'), '')
-        .replaceAll(RegExp(r'</?i>'), '')
-        .replaceAll(RegExp(r'</?strong>'), '')
-        .replaceAll(RegExp(r'</?em>'), '')
-        // Eliminar atributos class y style
-        .replaceAll(RegExp(r'\s+class="[^"]*"'), '')
-        .replaceAll(RegExp(r'\s+style="[^"]*"'), '')
-        // Limpiar entidades HTML
-        .replaceAll('&lt;', '<')
-        .replaceAll('&gt;', '>')
-        .replaceAll('&amp;', '&')
-        .replaceAll('&nbsp;', ' ')
-        .replaceAll('&#39;', "'")
-        // Limpiar espacios excesivos
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-  }
-
-  /// Verifica si el texto contiene ecuaciones matematicas.
-  bool _hasMath(String text) {
-    return text.contains(r'\(') ||
-        text.contains(r'\[') ||
-        text.contains('<math');
-  }
-
-  /// Construye una lista de widgets mezclando HTML y ecuaciones LaTeX.
-  List<Widget> _buildMixedWidgets(
-    String text,
-    double fontSize,
-    Color color,
-    BuildContext context,
-  ) {
+    // Renderizar texto + ecuaciones mezclados (enfoque simple que funcionaba)
     final widgets = <Widget>[];
-    final regex = RegExp(r'(\\\(.+?\\\)|\\\[.+?\\\])', dotAll: true);
-    final matches = regex.allMatches(text);
-
     int last = 0;
+
     for (final match in matches) {
       // Texto antes de la ecuacion
       if (match.start > last) {
-        final beforeText = text.substring(last, match.start);
-        if (beforeText.trim().isNotEmpty) {
+        final text = normalized.substring(last, match.start);
+        if (text.trim().isNotEmpty) {
           widgets.add(Html(
-            data: beforeText,
-            style: _htmlStyle(fontSize, isOption ? 1.3 : 1.5, color),
+            data: text,
+            style: _htmlStyle(fontSize, lineHeight, color),
           ));
         }
       }
 
-      // La ecuacion
+      // La ecuacion - extraer LaTeX quitando SOLO los delimitadores
       final rawEq = match.group(0)!;
       final isDisplay = rawEq.startsWith(r'\[');
       final latex = rawEq
@@ -219,11 +75,28 @@ class MathText extends StatelessWidget {
           .trim();
 
       widgets.add(
-        _MathEquation(
-          latex: latex,
-          isDisplay: isDisplay,
-          fontSize: fontSize,
-          color: color,
+        Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: 4,
+            vertical: isOption ? 2 : 4,
+          ),
+          child: Math.tex(
+            latex,
+            textStyle: TextStyle(
+              fontSize: isDisplay ? fontSize * 1.15 : fontSize,
+              color: color,
+            ),
+            // 🔧 FIX: onErrorFallback espera `Widget Function(FlutterMathException)`.
+            // Si el LaTeX es inválido, mostramos el código crudo como texto plano
+            // en lugar de romper el árbol de widgets.
+            onErrorFallback: (error) {
+              AppLogger.w('Math render error: ${error.message} (latex=$latex)');
+              return Text(
+                latex,
+                style: TextStyle(fontSize: fontSize, color: color),
+              );
+            },
+          ),
         ),
       );
 
@@ -231,20 +104,57 @@ class MathText extends StatelessWidget {
     }
 
     // Texto despues de la ultima ecuacion
-    if (last < text.length) {
-      final afterText = text.substring(last);
-      if (afterText.trim().isNotEmpty) {
+    if (last < normalized.length) {
+      final text = normalized.substring(last);
+      if (text.trim().isNotEmpty) {
         widgets.add(Html(
-          data: afterText,
-          style: _htmlStyle(fontSize, isOption ? 1.3 : 1.5, color),
+          data: text,
+          style: _htmlStyle(fontSize, lineHeight, color),
         ));
       }
     }
 
-    return widgets;
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 2,
+      runSpacing: 2,
+      children: widgets,
+    );
   }
 
-  /// Estilo HTML compartido para los fragmentos de texto.
+  /// Normalizacion MINIMA - solo lo necesario:
+  /// 1. $$...$$ a \[...\] (display math)
+  /// 2. MathML a \(...\)
+  /// 3. Entidades HTML basicas
+  /// NO convierte $...$ a \(...\) — Moodle ya usa \(...\) directamente
+  String _normalize(String input) {
+    var result = input;
+
+    // 1. Convertir $$...$$ a \[...\]
+    result = result.replaceAllMapped(
+      RegExp(r'\$\$(.+?)\$\$', dotAll: true),
+      (m) => '\\[${m.group(1)}\\]',
+    );
+
+    // 2. MathML <math>...</math> -> extraer contenido
+    result = result.replaceAllMapped(
+      RegExp(r'<math[^>]*>(.*?)</math>', dotAll: true),
+      (m) => '\\(${m.group(1)}\\)',
+    );
+
+    // 3. Entidades HTML basicas
+    result = result
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&apos;', "'")
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&#39;', "'");
+
+    return result;
+  }
+
   Map<String, Style> _htmlStyle(double fontSize, double lineHeight, Color color) {
     return {
       "body": Style(
@@ -264,92 +174,5 @@ class MathText extends StatelessWidget {
         verticalAlign: VerticalAlign.sup,
       ),
     };
-  }
-}
-
-/// Widget que renderiza una sola ecuacion LaTeX con fallback.
-class _MathEquation extends StatelessWidget {
-  final String latex;
-  final bool isDisplay;
-  final double fontSize;
-  final Color color;
-
-  const _MathEquation({
-    required this.latex,
-    required this.isDisplay,
-    required this.fontSize,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (isDisplay) {
-      return Container(
-        width: double.infinity,
-        margin: const EdgeInsets.symmetric(vertical: 8),
-        child: Center(
-          child: _buildMathWidget(context),
-        ),
-      );
-    }
-
-    return Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: 2,
-        vertical: isDisplay ? 4 : 0,
-      ),
-      child: _buildMathWidget(context),
-    );
-  }
-
-  Widget _buildMathWidget(BuildContext context) {
-    try {
-      final mathWidget = Math.tex(
-        latex,
-        textStyle: TextStyle(
-          fontSize: isDisplay ? fontSize * 1.15 : fontSize,
-          color: color,
-        ),
-        // Forzar estilo de visualización para que coincida con Moodle
-        mathStyle: isDisplay ? MathStyle.display : MathStyle.text,
-      );
-
-      if (_isLikelyWide(latex)) {
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: mathWidget,
-        );
-      }
-
-      return mathWidget;
-    } catch (e) {
-      AppLogger.w('Math render failed for "$latex": $e');
-      return _buildFallback();
-    }
-  }
-
-  bool _isLikelyWide(String latex) {
-    final hasFraction = latex.contains(r'\frac') || latex.contains(r'\dfrac');
-    final hasSummation = latex.contains(r'\sum') || latex.contains(r'\int');
-    final isLong = latex.length > 50;
-    return (hasFraction && isLong) || hasSummation || isLong;
-  }
-
-  Widget _buildFallback() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceVariant,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        latex,
-        style: TextStyle(
-          fontFamily: 'monospace',
-          fontSize: isDisplay ? fontSize * 1.1 : fontSize,
-          color: color,
-        ),
-      ),
-    );
   }
 }

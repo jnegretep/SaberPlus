@@ -156,6 +156,12 @@ class Nav {
   // ── Retos Diarios ──
   static void goDailyChallenges(BuildContext context) => context.push('/daily-challenges');
 
+  // ── Prediccion ICFES ──
+  static void goPrediction(BuildContext context) => context.push('/prediction');
+
+  // ── Analisis de Errores ──
+  static void goErrorAnalysis(BuildContext context) => context.push('/error-analysis');
+
   // ── Retos ──
   static void goChallenges(BuildContext context) => context.push('/challenges');
   static void goCreateChallenge(BuildContext context) => context.push('/challenges/create');

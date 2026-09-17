@@ -19,9 +19,12 @@ import '../core/theme/app_colors.dart';
 import '../core/animations/app_animations.dart';
 import '../core/utils/app_logger.dart';
 import '../services/daily_challenge_service.dart';
+import '../services/api_service.dart';
 import '../models/daily_challenge.dart';
 import '../config/navigation.dart';
 import '../models/course.dart';
+import '../controllers/quiz_controller.dart';
+import '../screens/question_screen.dart';
 import '../providers/gamification_provider.dart';
 import '../widgets/gamification/celebration_overlay.dart';
 
@@ -82,28 +85,92 @@ class _DailyChallengesScreenState extends State<DailyChallengesScreen>
     }
   }
 
-  /// Inicia un reto diario — navega al cuestionario.
+  /// Inicia un reto diario — va directo al cuestionario.
+  /// Crea un QuizController, inicia el intento y navega a QuestionScreen.
+  /// Al terminar, otorga XP y marca el reto como completado.
   Future<void> _startChallenge(DailyChallenge challenge) async {
+    final api = context.read<ApiService>();
+
+    // Mostrar loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: Row(
+            children: [
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text(
+                      'Iniciando reto...',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Preparando preguntas',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
     try {
-      // Crear un Course temporal para el QuizListScreen
-      final course = Course(
-        id: challenge.courseId,
-        fullname: challenge.area,
-        shortname: challenge.area,
-        startdate: 0,
-        enddate: 0,
-        visible: true,
+      final controller = QuizController(
+        api: api,
+        quizId: challenge.id,
+        quizName: challenge.name,
+        courseId: challenge.courseId,
       );
 
-      // Navegar a la lista de quizzes del curso
-      Nav.goQuizzes(context, course: course);
+      await controller.start();
+
+      if (!mounted) return;
+      Navigator.pop(context); // cerrar loading
+
+      // Navegar al QuestionScreen
+      await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => QuestionScreen(
+            controller: controller,
+            courseId: challenge.courseId,
+          ),
+        ),
+      );
+
+      // Al volver del QuestionScreen (ya terminó el reto)
+      if (!mounted) return;
+
+      // Otorgar XP por completar el reto
+      await _awardDailyChallengeXp(challenge);
+
+      // Refrescar la lista de retos para que aparezca como completado
+      _loadChallenges(forceRefresh: true);
     } catch (e) {
       AppLogger.e('DailyChallenges: error iniciando reto', e);
       if (!mounted) return;
+      Navigator.pop(context); // cerrar loading
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error al iniciar el reto: $e'),
+          content: Text('No se pudo iniciar el reto: $e'),
           backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }

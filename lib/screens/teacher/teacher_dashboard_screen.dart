@@ -1,8 +1,24 @@
+// lib/screens/teacher/teacher_dashboard_screen.dart
+// Saber+ - Panel de Docentes (Redisenio Profesional)
+//
+// Mejoras:
+// - Cards de estadisticas con numeros en tiempo real
+// - Accesos rapidos a todas las herramientas
+// - Lista de estudiantes destacados (top 5 por XP)
+// - Lista de estudiantes que necesitan atencion (bajo rendimiento)
+// - Selector de grado y ano
+// - Acceso a prediccion ICFES, analisis de errores y retos diarios
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/auth_service.dart';
+import '../../services/teacher_service.dart';
 import '../../widgets/global_scaffold.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/animations/app_animations.dart';
+import '../../config/navigation.dart';
+import '../../core/utils/app_logger.dart';
 
 class TeacherDashboardScreen extends StatefulWidget {
   const TeacherDashboardScreen({Key? key}) : super(key: key);
@@ -14,6 +30,10 @@ class TeacherDashboardScreen extends StatefulWidget {
 class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
   String? _selectedGrado;
   String? _selectedAnio;
+  Map<String, dynamic>? _stats;
+  List<Map<String, dynamic>> _topStudents = [];
+  List<Map<String, dynamic>> _studentsNeedingHelp = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -23,138 +43,196 @@ class _TeacherDashboardScreenState extends State<TeacherDashboardScreen> {
 
   Future<void> _loadInitialData() async {
     if (!mounted) return;
-    
+
     final auth = Provider.of<AuthService>(context, listen: false);
-    
-    // Establecer año actual por defecto
     _selectedAnio = DateTime.now().year.toString();
-    
-    // Convertir List<dynamic> a List<String> y obtener el primer elemento
+
     if (auth.user?['grados_disponibles'] != null) {
       final gradosDynamic = auth.user!['grados_disponibles'] as List<dynamic>;
       if (gradosDynamic.isNotEmpty) {
         _selectedGrado = gradosDynamic[0].toString();
       }
     }
-    
-    if (mounted) {
-      setState(() {});
+
+    await _loadStats();
+  }
+
+  Future<void> _loadStats() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+
+    try {
+      final auth = Provider.of<AuthService>(context, listen: false);
+      final teacherService = Provider.of<TeacherService>(context, listen: false);
+
+      // Cargar stats del profesor
+      final statsData = await teacherService.fetchGroupStats(
+        auth.colegio ?? '',
+        _selectedGrado,
+        _selectedAnio,
+      );
+
+      if (mounted) {
+        // Obtener estudiantes para extraer top y los que necesitan ayuda
+        final students = await teacherService.fetchStudents(_selectedGrado, _selectedAnio);
+
+        // Ordenar por promedio para top students
+        final sorted = List<Map<String, dynamic>>.from(students);
+        sorted.sort((a, b) {
+          final avgA = (a['promedio'] ?? a['puntaje_global'] ?? 0) as num;
+          final avgB = (b['promedio'] ?? b['puntaje_global'] ?? 0) as num;
+          return avgB.compareTo(avgA);
+        });
+
+        setState(() {
+          _stats = statsData;
+          _topStudents = sorted.take(5).map((s) => {
+            'nombre': s['nombre'] ?? 'Estudiante',
+            'xp': s['xp'] ?? s['total_xp'] ?? 0,
+            'level': s['level'] ?? s['current_level'] ?? 1,
+          }).toList();
+          _studentsNeedingHelp = sorted.reversed.take(5).where((s) {
+            final avg = (s['promedio'] ?? s['puntaje_global'] ?? 0) as num;
+            return avg < 250; // Promedio bajo
+          }).map((s) => {
+            'nombre': s['nombre'] ?? 'Estudiante',
+            'promedio': s['promedio'] ?? s['puntaje_global'] ?? 0,
+          }).toList();
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      AppLogger.e('TeacherDashboard: error cargando stats', e);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-  Widget _buildHeader(AuthService auth) {
+  @override
+  Widget build(BuildContext context) {
+    final auth = context.watch<AuthService>();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     final userName = (auth.nombre ?? 'Profesor').split(' ').first;
     final colegio = auth.colegio ?? 'Sin colegio asignado';
-    
+    final avatarUrl = auth.avatarUrl;
 
-// AHORA (usar esto directo):
-String avatarUrl = auth.avatarUrl;
-    
+    return GlobalScaffold(
+      currentIndex: 0,
+      body: Scaffold(
+        backgroundColor: isDark ? AppColors.darkBackground : AppColors.background,
+        body: SafeArea(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+              : RefreshIndicator(
+                  onRefresh: _loadStats,
+                  color: AppColors.primary,
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Header
+                        _buildHeader(userName, colegio, avatarUrl, isDark),
+                        const SizedBox(height: 20),
+
+                        // Selectores de grado y ano
+                        _buildSelectors(isDark),
+                        const SizedBox(height: 20),
+
+                        // Cards de estadisticas
+                        _buildStatsGrid(isDark),
+                        const SizedBox(height: 24),
+
+                        // Accesos rapidos
+                        _buildQuickAccess(isDark),
+                        const SizedBox(height: 24),
+
+                        // Top estudiantes
+                        if (_topStudents.isNotEmpty) ...[
+                          _buildSectionTitle(isDark, 'Estudiantes Destacados', Icons.emoji_events_rounded, AppColors.warning),
+                          const SizedBox(height: 12),
+                          _buildTopStudents(isDark),
+                          const SizedBox(height: 24),
+                        ],
+
+                        // Estudiantes que necesitan atencion
+                        if (_studentsNeedingHelp.isNotEmpty) ...[
+                          _buildSectionTitle(isDark, 'Necesitan Atencion', Icons.warning_amber_rounded, AppColors.error),
+                          const SizedBox(height: 12),
+                          _buildStudentsNeedingHelp(isDark),
+                          const SizedBox(height: 24),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(String name, String colegio, String? avatarUrl, bool isDark) {
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [AppColors.primary, AppColors.primaryLight],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
             color: AppColors.primary.withOpacity(0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.surface.withOpacity(0.5), width: 1),
-                ),
-                child: Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.surface, width: 2),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        blurRadius: 8,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: CircleAvatar(
-                    radius: 30,
-                    backgroundColor: AppColors.surface,
-                    backgroundImage: avatarUrl != null
-                        ? NetworkImage(avatarUrl)
-                        : const AssetImage('assets/avatars/default.png')
-                            as ImageProvider,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Prof. $userName',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textOnPrimary,
-                        letterSpacing: -0.5,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      colegio,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: AppColors.surface.withOpacity(0.9),
-                        height: 1.2,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            width: 56,
+            height: 56,
             decoration: BoxDecoration(
-              color: AppColors.surface.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.surface.withOpacity(0.2)),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
             ),
-            child: Row(
+            child: CircleAvatar(
+              radius: 28,
+              backgroundColor: AppColors.surface,
+              backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                  ? CachedNetworkImageProvider(avatarUrl)
+                  : const AssetImage('assets/avatars/default.png') as ImageProvider,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.dashboard_rounded, color: AppColors.surface.withOpacity(0.9), size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Panel de Control Académico',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.surface.withOpacity(0.95),
-                    ),
+                Text(
+                  'Prof. $name',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  colegio,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.white.withOpacity(0.9),
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -164,571 +242,288 @@ String avatarUrl = auth.avatarUrl;
     );
   }
 
-  Widget _buildFilterBar(AuthService auth) {
-    final gradosDynamic = auth.user?['grados_disponibles'] as List<dynamic>? ?? [];
-    final List<String> grados = gradosDynamic.map((e) => e.toString()).toList();
-    
-    final currentYear = DateTime.now().year;
-    final List<String> anios = [
-      (currentYear - 2).toString(),
-      (currentYear - 1).toString(),
-      currentYear.toString(),
+  Widget _buildSelectors(bool isDark) {
+    final auth = context.read<AuthService>();
+    final grados = (auth.user?['grados_disponibles'] as List<dynamic>?)
+        ?.map((e) => e.toString())
+        .toList() ?? [];
+
+    final anios = [
+      DateTime.now().year.toString(),
+      (DateTime.now().year - 1).toString(),
     ];
 
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadowMd,
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.tune_rounded, size: 20, color: AppColors.textSecondary),
-              const SizedBox(width: 8),
-              const Text(
-                'Filtros de análisis',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildFilterDropdown(
-                  label: 'Grado',
-                  value: _selectedGrado,
-                  items: grados,
-                  hint: 'Grado',
-                  onChanged: (value) {
-                    setState(() => _selectedGrado = value);
-                  },
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _buildFilterDropdown(
-                  label: 'Año',
-                  value: _selectedAnio,
-                  items: anios,
-                  hint: 'Año',
-                  onChanged: (value) {
-                    setState(() => _selectedAnio = value);
-                  },
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFilterDropdown({
-    required String label,
-    required String? value,
-    required List<String> items,
-    required String hint,
-    required ValueChanged<String?> onChanged,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textTertiary,
+        Expanded(
+          child: _buildDropdown(
+            label: 'Grado',
+            value: _selectedGrado,
+            items: grados,
+            onChanged: (v) {
+              setState(() => _selectedGrado = v);
+              _loadStats();
+            },
+            isDark: isDark,
           ),
         ),
-        const SizedBox(height: 8),
-        Container(
-          height: 48,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceClean,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: value,
-              isExpanded: true,
-              icon: Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textTertiary),
-              hint: Text(
-                hint,
-                style: TextStyle(color: AppColors.textDisabled, fontSize: 14),
-              ),
-              items: items.map((item) {
-                return DropdownMenuItem<String>(
-                  value: item,
-                  child: Text(
-                    item,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: AppColors.textSecondary,
-                      fontWeight: FontWeight.w500
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                );
-              }).toList(),
-              onChanged: onChanged,
-            ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildDropdown(
+            label: 'Año',
+            value: _selectedAnio,
+            items: anios,
+            onChanged: (v) {
+              setState(() => _selectedAnio = v);
+              _loadStats();
+            },
+            isDark: isDark,
           ),
         ),
       ],
     );
   }
 
-  // ✅ CORREGIDO: Optimizada para no desbordar en espacios pequeños
-  Widget _buildStatsCard({
-    required IconData icon,
-    required String title,
-    required String value,
-    required Color color,
-    String? subtitle,
+  Widget _buildDropdown({
+    required String label,
+    required String? value,
+    required List<String> items,
+    required ValueChanged<String?> onChanged,
+    required bool isDark,
   }) {
     return Container(
-      // Padding reducido para ganar espacio interno
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.textTertiary.withOpacity(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-        border: Border.all(color: AppColors.textOnPrimary, width: 2),
+        color: isDark ? AppColors.darkSurface : AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: isDark ? AppColors.darkBorder : AppColors.border),
+      ),
+      child: DropdownButtonFormField<String>(
+        value: value,
+        decoration: InputDecoration(
+          labelText: label,
+          border: InputBorder.none,
+          contentPadding: EdgeInsets.zero,
+          labelStyle: TextStyle(fontSize: 12, color: AppColors.textTertiary),
+        ),
+        items: items.map((e) => DropdownMenuItem(value: e, child: Text(e, style: const TextStyle(fontSize: 14)))).toList(),
+        onChanged: onChanged,
+        isExpanded: true,
+      ),
+    );
+  }
+
+  Widget _buildStatsGrid(bool isDark) {
+    final totalStudents = _stats?['total_estudiantes'] ?? 0;
+    final totalSimulacros = _stats?['total_simulacros'] ?? 0;
+    final avgScore = _stats?['promedio_colegio'] ?? 0;
+    final avgScoreFormatted = avgScore is num ? avgScore.toStringAsFixed(0) : '0';
+
+    return GridView.count(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisCount: 2,
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      childAspectRatio: 1.5,
+      children: [
+        _buildStatCard('Estudiantes', '$totalStudents', Icons.school_rounded, AppColors.primary, isDark),
+        _buildStatCard('Simulacros', '$totalSimulacros', Icons.assignment_rounded, AppColors.accent, isDark),
+        _buildStatCard('Promedio', avgScoreFormatted, Icons.trending_up_rounded, AppColors.success, isDark),
+        _buildStatCard('Grado', _selectedGrado ?? '-', Icons.grade_rounded, AppColors.purple, isDark),
+      ],
+    );
+  }
+
+  Widget _buildStatCard(String label, String value, IconData icon, Color color, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurface : AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: AppColors.shadowSm, blurRadius: 6, offset: const Offset(0, 3))],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            padding: const EdgeInsets.all(8), // Icono más compacto
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: color, size: 20),
-          ),
-          const SizedBox(height: 6), // Espacio reducido
-          
-          // FittedBox ayuda a que el número no desborde si es muy grande
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              value,
-              style: TextStyle(
-                fontSize: 22, // Fuente ligeramente ajustada
-                fontWeight: FontWeight.w800,
-                color: color,
-                height: 1,
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: color, size: 18),
               ),
-            ),
-          ),
-          const SizedBox(height: 4), // Espacio reducido
-          
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 11, // Fuente ajustada para evitar corte
-              fontWeight: FontWeight.w600,
-              color: AppColors.textTertiary,
-            ),
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          
-          if (subtitle != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              style: TextStyle(
-                fontSize: 10,
-                color: AppColors.textDisabled,
-                fontWeight: FontWeight.w500,
+              const Spacer(),
+              Text(
+                value,
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: color),
               ),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(label, style: TextStyle(fontSize: 13, color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary, fontWeight: FontWeight.w600)),
         ],
       ),
     );
   }
 
-  Widget _buildActionCard({
-    required IconData icon,
-    required String title,
-    required String description,
-    required Color color,
-    required VoidCallback onTap,
-    bool comingSoon = false,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.textTertiary.withOpacity(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-        border: Border.all(color: AppColors.textOnPrimary, width: 2),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(20),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildQuickAccess(bool isDark) {
+    final items = [
+      {'icon': Icons.people_rounded, 'label': 'Estudiantes', 'color': AppColors.primary, 'onTap': () => Nav.goTeacherStudents(context)},
+      {'icon': Icons.bar_chart_rounded, 'label': 'Estadisticas', 'color': AppColors.success, 'onTap': () => Nav.goTeacherStats(context)},
+      {'icon': Icons.picture_as_pdf_rounded, 'label': 'Informes', 'color': AppColors.error, 'onTap': () => Nav.goTeacherReports(context)},
+      {'icon': Icons.insights_rounded, 'label': 'Prediccion ICFES', 'color': AppColors.purple, 'onTap': () => Nav.goPrediction(context)},
+      {'icon': Icons.analytics_rounded, 'label': 'Analisis Errores', 'color': AppColors.warning, 'onTap': () => Nav.goErrorAnalysis(context)},
+      {'icon': Icons.flash_on_rounded, 'label': 'Retos Diarios', 'color': const Color(0xFF6366F1), 'onTap': () => Nav.goDailyChallenges(context)},
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Herramientas', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary)),
+        const SizedBox(height: 12),
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 3,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 1.0,
+          children: items.map((item) {
+            final color = item['color'] as Color;
+            return PressScale(
+              onTap: item['onTap'] as VoidCallback,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkSurface : AppColors.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: color.withOpacity(0.2)),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(10),
+                      width: 40,
+                      height: 40,
                       decoration: BoxDecoration(
                         color: color.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Icon(icon, color: color, size: 24),
+                      child: Icon(item['icon'] as IconData, color: color, size: 22),
                     ),
-                    if (comingSoon)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppColors.warningBg,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Text(
-                          'Pronto',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.warningDark,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+                    const SizedBox(height: 8),
                     Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 15, // Ligero ajuste
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textSecondary,
-                        letterSpacing: -0.3,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      description,
-                      style: TextStyle(
-                        fontSize: 12, // Ligero ajuste
-                        color: AppColors.textTertiary,
-                        height: 1.3,
-                      ),
-                      maxLines: 3,
+                      item['label'] as String,
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary),
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
-                
-                Row(
-                  children: [
-                    Text(
-                      'Acceder',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: color,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(
-                      Icons.arrow_forward_rounded,
-                      color: color,
-                      size: 16,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+              ),
+            );
+          }).toList(),
         ),
-      ),
+      ],
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final auth = Provider.of<AuthService>(context);
-    final colegioStats = auth.user?['colegio_stats'] ?? {};
+  Widget _buildTopStudents(bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurface : AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: AppColors.shadowSm, blurRadius: 6, offset: const Offset(0, 3))],
+      ),
+      child: Column(
+        children: _topStudents.take(5).toList().asMap().entries.map((entry) {
+          final index = entry.key;
+          final student = entry.value;
+          final name = student['nombre'] ?? 'Estudiante';
+          final xp = student['xp'] ?? 0;
+          final level = student['level'] ?? 1;
+          final medals = [AppColors.gold, AppColors.silver, AppColors.bronze];
 
-    String formatPromedio(dynamic promedio) {
-      if (promedio == null) return 'N/A';
-      try {
-        if (promedio is String) {
-          final doubleValue = double.tryParse(promedio);
-          return doubleValue?.toStringAsFixed(1) ?? 'N/A';
-        }
-        if (promedio is num) {
-          return promedio.toStringAsFixed(1);
-        }
-        return 'N/A';
-      } catch (e) {
-        return 'N/A';
-      }
-    }
-
-    return GlobalScaffold(
-      currentIndex: 0,
-      body: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildHeader(auth),
-
-            const SizedBox(height: 32),
-
-            _buildFilterBar(auth),
-
-            const SizedBox(height: 32),
-
-            const Padding(
-              padding: EdgeInsets.only(left: 4),
-              child: Text(
-                'Resumen del colegio',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textSecondary,
-                  letterSpacing: -0.5,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            
-            // ✅ CORREGIDO: Ratio modificado para hacer las tarjetas más altas
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: 3,
-              // Ratio reducido de 0.75 a 0.65 -> Esto hace la tarjeta más alta
-              childAspectRatio: 0.65, 
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
               children: [
-                _buildStatsCard(
-                  icon: Icons.people_alt_rounded,
-                  title: 'Estudiantes',
-                  value: colegioStats['total_estudiantes']?.toString() ?? '0',
-                  color: AppColors.primary,
-                  subtitle: 'Inscritos',
-                ),
-                _buildStatsCard(
-                  icon: Icons.assignment_rounded,
-                  title: 'Simulacros',
-                  value: colegioStats['total_simulacros']?.toString() ?? '0',
-                  color: AppColors.successDark,
-                  subtitle: 'Realizados',
-                ),
-                _buildStatsCard(
-                  icon: Icons.bar_chart_rounded,
-                  title: 'Promedio',
-                  value: formatPromedio(colegioStats['promedio_colegio']),
-                  color: AppColors.purple,
-                  subtitle: 'Global',
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 32),
-
-            const Padding(
-              padding: EdgeInsets.only(left: 4),
-              child: Text(
-                'Herramientas Docentes',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textSecondary,
-                  letterSpacing: -0.5,
-                ),
-              ),
-            ),
-            const SizedBox(height: 6),
-            const Padding(
-              padding: EdgeInsets.only(left: 4),
-              child: Text(
-                'Gestione el seguimiento académico de sus grupos',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: AppColors.textTertiary,
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // GRID 2: Acciones
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: 2,
-              // Ratio 0.72 para botones grandes funciona bien
-              childAspectRatio: 0.72,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              children: [
-                _buildActionCard(
-                  icon: Icons.school_rounded,
-                  title: 'Mis Estudiantes',
-                  description: 'Lista detallada y perfiles de alumnos.',
-                  color: AppColors.primary,
-                  onTap: () {
-                    // Navegación
-                  },
-                ),
-                _buildActionCard(
-                  icon: Icons.analytics_rounded,
-                  title: 'Estadísticas',
-                  description: 'Análisis de rendimiento por competencias.',
-                  color: AppColors.successDark,
-                  onTap: () {
-                    // Navegación
-                  },
-                ),
-                _buildActionCard(
-                  icon: Icons.leaderboard_rounded,
-                  title: 'Ranking',
-                  description: 'Posiciones y comparativas grupales.',
-                  color: AppColors.warning,
-                  onTap: () {
-                    // Navegación
-                  },
-                ),
-                _buildActionCard(
-                  icon: Icons.picture_as_pdf_rounded,
-                  title: 'Informes',
-                  description: 'Descargar reportes en formato PDF.',
-                  color: AppColors.error,
-                  onTap: () {
-                    // Navegación
-                  },
-                  comingSoon: true,
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 32),
-
-            // Footer informativo
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceVariant,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.info_outline_rounded,
-                      color: AppColors.textTertiary, size: 24),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Panel Docente',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.borderDark,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Utilice estas herramientas para monitorear el progreso, identificar áreas de refuerzo y generar reportes para reuniones académicas.',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: AppColors.textTertiary,
-                            height: 1.5,
-                          ),
-                        ),
-                      ],
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: index < 3 ? medals[index] : AppColors.surfaceVariant,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Text(
+                      '${index + 1}',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: index < 3 ? Colors.white : AppColors.textTertiary),
                     ),
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(name, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
+                Text('Nv $level', style: TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w700)),
+                const SizedBox(width: 8),
+                Text('$xp XP', style: TextStyle(fontSize: 12, color: AppColors.textTertiary, fontWeight: FontWeight.w600)),
+              ],
             ),
-
-            const SizedBox(height: 40),
-          ],
-        ),
+          );
+        }).toList(),
       ),
     );
   }
 
-  Widget _buildInfoItem(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.check_circle_rounded,
-              color: AppColors.successDark, size: 16),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                fontSize: 14,
-                color: AppColors.borderMedium,
-              ),
-            ),
-          ),
-        ],
+  Widget _buildStudentsNeedingHelp(bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.darkSurface : AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.error.withOpacity(0.2)),
+        boxShadow: [BoxShadow(color: AppColors.shadowSm, blurRadius: 6, offset: const Offset(0, 3))],
       ),
+      child: Column(
+        children: _studentsNeedingHelp.take(5).toList().map((student) {
+          final name = student['nombre'] ?? 'Estudiante';
+          final avg = student['promedio'] ?? 0;
+          final avgFormatted = avg is num ? avg.toStringAsFixed(0) : '0';
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: AppColors.error, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(name, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
+                Text('Prom: $avgFormatted', style: TextStyle(fontSize: 12, color: AppColors.error, fontWeight: FontWeight.w700)),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(bool isDark, String title, IconData icon, Color color) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: color),
+        const SizedBox(width: 8),
+        Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary)),
+      ],
     );
   }
 }

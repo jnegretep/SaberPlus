@@ -2,11 +2,11 @@
 // Saber+ — Entry point v1.5.1
 // Cambios vs v1.5.0:
 //   - ✅ FIX #1+#3: GoRouter estable — creado UNA sola vez en initState()
-//     ya no se recrea en cada rebuild (causaba reset a /welcome tras login)
 //   - ✅ initialLocation prioriza auth.token sobre isFirstTime
 //   - ✅ Redirect también aplica a /welcome cuando el usuario ya está logueado
+//   - 🔧 FCM FIX: el token FCM ahora se sincroniza con el backend
 
-import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode; // <-- CORREGIDO
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -30,6 +30,7 @@ import 'core/services/pdf_cache_service.dart';
 import 'services/auth_service.dart';
 import 'services/api_service.dart';
 import 'services/teacher_service.dart';
+import 'services/fcm_service.dart';           // 🔧 FCM FIX
 import 'providers/dashboard_provider.dart';
 import 'providers/gamification_provider.dart';
 import 'providers/notification_provider.dart';
@@ -45,8 +46,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 // ── Flutter Downloader Callback (FASE 4.3) ──
-// Debe ser top-level o static con @pragma('vm:entry-point')
-// Se llama desde el isolate de background cuando hay progreso de descarga.
 @pragma('vm:entry-point')
 void _videoDownloadCallback(
   String id,
@@ -61,7 +60,7 @@ Future<void> main() async {
 
   // ── Cargar variables de entorno ──
   await dotenv.load(fileName: '.env');
-  Env.ensureConfigured(); // ⚠️ Falla explícitamente si falta config crítica
+  Env.ensureConfigured();
   Env.debugPrintConfig();
 
   // ── Firebase ──
@@ -94,29 +93,30 @@ Future<void> main() async {
     await prefs.setBool(AppConstants.keyFirstTime, false);
   }
 
-  // ✅ Inicializar caché (usa SharedPreferences internamente)
+  // ✅ Caches
   await CacheService.init();
-  // ✅ FASE 4: Inicializar caché de cursos (offline-first)
   await CourseCacheService.init();
-  // ✅ FASE 4.3: Inicializar servicio de descarga de videos (offline)
-  await FlutterDownloader.initialize(debug: kDebugMode); // <-- AHORA FUNCIONA
+  await FlutterDownloader.initialize(debug: kDebugMode);
   await VideoDownloadService.init();
-  // Registrar callback de progreso de descargas
   FlutterDownloader.registerCallback(_videoDownloadCallback);
-
-  // ✅ FASE 4.4: Inicializar servicio de cache de PDFs (offline)
   await PdfCacheService.init();
 
   // ── AuthService precarga ──
   final authService = AuthService();
   await authService.loadFromStorage();
 
-  // ✅ FASE 1.3: Configurar callback de sesión expirada para DioClient
-  // Cuando el refresh token también expira, el interceptor fuerza el logout
+  // ✅ Callback de sesión expirada
   DioClient.onSessionExpired = () async {
     AppLogger.w('Sesión expirada (DioClient callback) — forzando logout');
     await authService.logout();
   };
+
+  // 🔧 FCM FIX: configurar el servicio FCM.
+  // ⚠️ IMPORTANTE: debe ir DESPUÉS de declarar `authService`.
+  FcmService.configure(
+    baseUrl: ApiService.baseUrl,
+    jwtProvider: () async => authService.token,
+  );
 
   // ── Theme Provider ──
   final themeProvider = ThemeProvider();
@@ -140,7 +140,6 @@ Future<void> main() async {
           create: (context) => DashboardProvider(context.read<ApiService>()),
           update: (context, api, dashboard) => dashboard ?? DashboardProvider(api),
         ),
-        // ✅ FASE 3: GamificationProvider (XP, niveles, rachas, badges)
         ChangeNotifierProvider<GamificationProvider>(
           create: (_) => GamificationProvider(),
         ),
@@ -164,7 +163,10 @@ class _MyAppState extends State<MyApp> {
   bool _fcmInitialized = false;
   bool _gamifLoaded = false;
 
-  // ✅ FIX: Router creado UNA sola vez — ya no se recrea en cada rebuild
+  // 🔧 FCM FIX: rastrea si el usuario ya estaba logueado para detectar
+  // la transición "anon → logueado" y sincronizar el token en ese momento.
+  bool _wasLoggedIn = false;
+
   late final GoRouter _router;
 
   @override
@@ -173,18 +175,22 @@ class _MyAppState extends State<MyApp> {
     _initFCM();
     _initRouter();
 
-    // ✅ FASE 3: Escuchar cambios de auth para cargar gamificación al hacer login
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final auth = context.read<AuthService>();
       auth.addListener(_onAuthChanged);
-      // Cargar gamificación si ya hay sesión al iniciar
+
+      // 🔧 FCM FIX: estado inicial (por si el usuario ya estaba logueado al abrir)
+      _wasLoggedIn = auth.token != null && auth.userId != null;
+      if (_wasLoggedIn) {
+        FcmService.syncTokenWithBackend();
+      }
+
       _maybeLoadGamification();
     });
   }
 
   @override
   void dispose() {
-    // Limpiar listener para evitar memory leaks
     try {
       final auth = context.read<AuthService>();
       auth.removeListener(_onAuthChanged);
@@ -194,6 +200,18 @@ class _MyAppState extends State<MyApp> {
 
   void _onAuthChanged() {
     _maybeLoadGamification();
+
+    // 🔧 FCM FIX: cuando el usuario pasa de anon → logueado, sincronizar token.
+    // Este es el caso "acabo de hacer login" (cubre LoginScreen y registro).
+    try {
+      final auth = context.read<AuthService>();
+      final isLoggedIn = auth.token != null && auth.userId != null;
+      if (isLoggedIn && !_wasLoggedIn) {
+        AppLogger.i('FcmService: login detectado, sincronizando token...');
+        FcmService.syncTokenWithBackend();
+      }
+      _wasLoggedIn = isLoggedIn;
+    } catch (_) {}
   }
 
   /// ✅ FASE 3: Carga el estado de gamificación cuando hay sesión activa.
@@ -206,23 +224,16 @@ class _MyAppState extends State<MyApp> {
         _gamifLoaded = true;
         gamif.loadStatus();
       } else if (auth.token == null && _gamifLoaded) {
-        // Sesión cerrada: resetear
         _gamifLoaded = false;
         gamif.clear();
       }
-    } catch (_) {
-      // provider puede no estar disponible si el árbol cambió
-    }
+    } catch (_) {}
   }
 
   void _initRouter() {
     final auth = context.read<AuthService>();
     final api = context.read<ApiService>();
 
-    // ✅ FIX #1: Priorizar auth sobre isFirstTime
-    // Si el usuario ya tiene token válido → dashboard
-    // Si no, pero ya vio el onboarding → login
-    // Si es primera vez → welcome (onboarding)
     final String initialLocation;
     if (auth.token != null && auth.userId != null) {
       initialLocation = auth.isProfesor ? '/teacher' : '/dashboard';
@@ -251,12 +262,97 @@ class _MyAppState extends State<MyApp> {
       final settings = await messaging.requestPermission();
       AppLogger.i('FCM permisos: ${settings.authorizationStatus}');
 
-      final token = await messaging.getToken();
-      AppLogger.i('FCM token: ${token?.substring(0, 20)}...');
+      // 🔧 FCM FIX: antes esto solo logueaba el token y nunca se enviaba.
+      // Ahora: (1) registramos listener de rotación, (2) sincronizamos el
+      // token actual (si ya hay JWT, funciona; si no, se omite y se
+      // reintentará tras el login).
+      FcmService.registerTokenRefreshListener();
+      await FcmService.syncTokenWithBackend();
+
+      // Notificación en foreground
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        AppLogger.i('FCM onMessage: ${message.notification?.title}');
+        _handleSmartNotification(message);
+      });
+
+      // Tap en notificación con app en background
+      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+        AppLogger.i('FCM onMessageOpenedApp: ${message.data}');
+        _handleNotificationTap(message.data);
+      });
+
+      // App abierta desde notificación (cold start)
+      messaging.getInitialMessage().then((message) {
+        if (message != null) {
+          AppLogger.i('FCM initialMessage: ${message.data}');
+          _handleNotificationTap(message.data);
+        }
+      });
 
       _fcmInitialized = true;
     } catch (e) {
       AppLogger.e('Error inicializando FCM', e);
+    }
+  }
+
+  void _handleSmartNotification(RemoteMessage message) {
+    final title = message.notification?.title ?? message.data['title'] ?? '';
+    final body = message.notification?.body ?? message.data['body'] ?? '';
+    final action = message.data['action'] ?? '';
+
+    if (title.isEmpty) return;
+
+    final scaffoldMessenger = ScaffoldMessenger.of(_router.routerDelegate.navigatorKey.currentContext!);
+    scaffoldMessenger.showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+            if (body.isNotEmpty)
+              Text(body, style: const TextStyle(fontSize: 13)),
+          ],
+        ),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 5),
+        action: action.isNotEmpty
+            ? SnackBarAction(
+                label: 'Ver',
+                onPressed: () => _navigateFromAction(action),
+              )
+            : null,
+      ),
+    );
+  }
+
+  void _handleNotificationTap(Map<String, dynamic> data) {
+    final action = data['action'] ?? '';
+    _navigateFromAction(action);
+  }
+
+  void _navigateFromAction(String action) {
+    final context = _router.routerDelegate.navigatorKey.currentContext;
+    if (context == null) return;
+
+    switch (action) {
+      case 'go_dashboard':
+        context.go('/dashboard');
+        break;
+      case 'go_daily_challenges':
+        context.push('/daily-challenges');
+        break;
+      case 'go_achievements':
+        context.push('/achievements');
+        break;
+      case 'go_prediction':
+        context.push('/prediction');
+        break;
+      case 'go_stats':
+        context.push('/estadisticas');
+        break;
+      default:
+        context.go('/dashboard');
     }
   }
 
@@ -274,7 +370,6 @@ class _MyAppState extends State<MyApp> {
       routerConfig: _router,
     );
 
-    // NotificationProvider solo si el usuario está autenticado
     if (auth.userId != null && auth.token != null) {
       final notificationsApi = NotificationsApi(
         baseUrl: ApiService.baseUrl,
