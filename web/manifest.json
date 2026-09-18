@@ -1,13 +1,15 @@
 {
-    "name": "prepsaber",
-    "short_name": "prepsaber",
+    "name": "Saber+ — Preparación ICFES Saber 11",
+    "short_name": "Saber+",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#1E4ED8",
+    "theme_color": "#1E4ED8",
+    "description": "Cursos, simulacros, retos 1v1, gamificación y tutor con IA para prepararte para el ICFES Saber 11.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
+    "lang": "es",
+    "categories": ["education", "productivity"],
     "icons": [
         {
             "src": "icons/Icon-192.png",

@@ -74,3 +74,106 @@ class RankingResponse {
     );
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+// v1.6.0 — Rankings institucionales (colegios / departamentos)
+// ═══════════════════════════════════════════════════════════
+
+/// Una institución (colegio o departamento) en el ranking.
+class InstitutionRankingEntry {
+  final int posicion;
+  final String nombre;
+  final String? departamento;
+  final String? ciudad;
+  final int totalXp;
+  final int usuarios;
+  final double nivelPromedio;
+  final bool esMia;
+
+  InstitutionRankingEntry({
+    required this.posicion,
+    required this.nombre,
+    this.departamento,
+    this.ciudad,
+    required this.totalXp,
+    required this.usuarios,
+    required this.nivelPromedio,
+    this.esMia = false,
+  });
+
+  factory InstitutionRankingEntry.fromJson(Map<String, dynamic> json) {
+    return InstitutionRankingEntry(
+      posicion: (json['posicion'] as num).toInt(),
+      nombre: json['nombre'] as String? ?? '—',
+      departamento: json['departamento'] as String?,
+      ciudad: json['ciudad'] as String?,
+      totalXp: (json['total_xp'] as num?)?.toInt() ?? 0,
+      usuarios: (json['usuarios'] as num?)?.toInt() ?? 0,
+      nivelPromedio: (json['nivel_promedio'] as num?)?.toDouble() ?? 0,
+      esMia: json['es_mia'] as bool? ?? false,
+    );
+  }
+
+  /// Iniciales del nombre para el avatar placeholder.
+  String get initials {
+    final clean = nombre.trim();
+    if (clean.isEmpty) return '?';
+    return clean.substring(0, 1).toUpperCase();
+  }
+}
+
+/// Posición de la institución del usuario actual.
+class MiInstitucion {
+  final String nombre;
+  final int posicion;
+  final int? totalXp;
+  final int? usuarios;
+
+  MiInstitucion({
+    required this.nombre,
+    required this.posicion,
+    this.totalXp,
+    this.usuarios,
+  });
+
+  factory MiInstitucion.fromJson(Map<String, dynamic> json) {
+    return MiInstitucion(
+      nombre: json['nombre'] as String? ?? '',
+      posicion: (json['posicion'] as num?)?.toInt() ?? 0,
+      totalXp: (json['total_xp'] as num?)?.toInt(),
+      usuarios: (json['usuarios'] as num?)?.toInt(),
+    );
+  }
+}
+
+/// Respuesta completa del ranking institucional.
+class InstitutionRankingResponse {
+  final String tipo;               // 'colegios' | 'departamentos'
+  final String period;             // 'all_time', 'weekly', 'monthly'
+  final int totalInstituciones;
+  final MiInstitucion? miInstitucion;
+  final List<InstitutionRankingEntry> ranking;
+
+  InstitutionRankingResponse({
+    required this.tipo,
+    required this.period,
+    required this.totalInstituciones,
+    this.miInstitucion,
+    required this.ranking,
+  });
+
+  factory InstitutionRankingResponse.fromJson(Map<String, dynamic> json) {
+    final rankingRaw = (json['ranking'] as List<dynamic>? ?? []);
+    return InstitutionRankingResponse(
+      tipo: json['tipo'] as String? ?? 'colegios',
+      period: json['period'] as String? ?? 'all_time',
+      totalInstituciones: (json['total_instituciones'] as num?)?.toInt() ?? 0,
+      miInstitucion: json['mi_institucion'] == null
+          ? null
+          : MiInstitucion.fromJson(json['mi_institucion'] as Map<String, dynamic>),
+      ranking: rankingRaw
+          .map((e) => InstitutionRankingEntry.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}

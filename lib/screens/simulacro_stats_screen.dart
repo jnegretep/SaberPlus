@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/api_service.dart';
+import '../services/share_service.dart';
 import '../widgets/area_bar_chart.dart';
 import '../widgets/area_radar_chart.dart';
 import '../core/theme/app_colors.dart';
@@ -66,6 +67,27 @@ class _SimulacroStatsScreenState extends State<SimulacroStatsScreen> {
     if (value == null) return 0.0;
     if (value is num) return value.toDouble();
     return double.tryParse(value.toString()) ?? 0.0;
+  }
+
+  /// ✅ v1.6.0 — Área con el puntaje más alto (para compartir).
+  String? _areaFuerte(Map<String, dynamic> user) {
+    const nombres = {
+      'lectura_puntaje': 'Lectura Crítica',
+      'matematicas_puntaje': 'Matemáticas',
+      'sociales_puntaje': 'Sociales y Ciudadanas',
+      'naturales_puntaje': 'Ciencias Naturales',
+      'ingles_puntaje': 'Inglés',
+    };
+    String? mejorKey;
+    double mejor = -1;
+    for (final e in nombres.entries) {
+      final v = _toDouble(user[e.key]);
+      if (v > mejor) {
+        mejor = v;
+        mejorKey = e.key;
+      }
+    }
+    return mejorKey != null ? nombres[mejorKey] : null;
   }
 
   // Obtener el label del ámbito seleccionado
@@ -410,12 +432,27 @@ Widget _buildChartViewSelector() {
                     ),
                     onPressed: () => Navigator.pop(context),
                   ),
-                  const Text(
-                    'Estadísticas del Simulacro',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
+                  const Expanded(
+                    child: Text(
+                      'Estadísticas del Simulacro',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                  // ✅ v1.6.0: compartir puntaje
+                  IconButton(
+                    icon: Icon(
+                      Icons.share_rounded,
                       color: AppColors.textSecondary,
+                      size: 22,
+                    ),
+                    tooltip: 'Compartir mi puntaje',
+                    onPressed: () => ShareService.shareSimulacroResult(
+                      score: _toDouble(user["puntaje_global"]),
+                      areaFuerte: _areaFuerte(user),
                     ),
                   ),
                 ],

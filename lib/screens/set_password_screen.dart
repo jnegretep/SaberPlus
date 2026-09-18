@@ -6,7 +6,7 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../core/constants/app_constants.dart';
 import '../widgets/profile_avatar_widget.dart';
-import 'dart:io';
+import '../core/io_shim/io_shim.dart'; // v1.6.0: dart:io con stub para web
 import '../config/navigation.dart';
 import '../core/theme/app_colors.dart';
 

@@ -16,6 +16,7 @@ import '../core/animations/shimmer_loading.dart';
 import '../providers/gamification_provider.dart';
 import '../models/gamification_state.dart';
 import '../config/navigation.dart';
+import '../services/share_service.dart';
 import '../widgets/gamification/xp_bar.dart';
 import '../widgets/gamification/streak_indicator.dart';
 
@@ -140,6 +141,15 @@ class _AchievementsScreenState extends State<AchievementsScreen>
               ),
             ),
           ),
+          // ✅ v1.6.0: compartir logros
+          IconButton(
+            icon: Icon(
+              Icons.share_rounded,
+              color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary,
+            ),
+            tooltip: 'Compartir mis logros',
+            onPressed: () => _compartirLogros(),
+          ),
           // ✅ Botón de Ranking de XP
           IconButton(
             icon: const Icon(Icons.leaderboard_rounded),
@@ -155,6 +165,27 @@ class _AchievementsScreenState extends State<AchievementsScreen>
         ],
       ),
     );
+  }
+
+  /// ✅ v1.6.0 — Comparte los logros del usuario.
+  Future<void> _compartirLogros() async {
+    final gamif = context.read<GamificationProvider>();
+    final badges = gamif.state.badges;
+
+    if (badges.unlockedCount == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('¡Completa tu primera insignia para compartirla! 🏅'),
+        ),
+      );
+      return;
+    }
+
+    // Comparte la última insignia desbloqueada (o la primera si hay varias)
+    final ultima = badges.unlocked.isNotEmpty ? badges.unlocked.last : null;
+    if (ultima != null) {
+      await ShareService.shareBadge(nombreBadge: ultima.name);
+    }
   }
 
   Widget _buildSummarySection(GamificationProvider gamif, bool isDark) {

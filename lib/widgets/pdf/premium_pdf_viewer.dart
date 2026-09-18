@@ -2,20 +2,23 @@
 // Saber+ — Visor de PDF premium con soporte offline
 //
 // Características:
-// - Descarga y cachea PDFs para uso offline
+// - Descarga y cachea PDFs para uso offline (móvil)
+// - WEB (v1.6.0): abre el PDF en una pestaña nueva del navegador
+//   (el visor nativo del navegador es la mejor experiencia en desktop)
 // - Indicador de progreso de descarga
 // - Barra de progreso de lectura (página X de Y)
 // - Recordar última página leída
-// - Botón descargar/eliminar para offline
+// - Botón descargar/eliminar para offline (oculto en web)
 // - Zoom pinzable
 // - Navegación de páginas (swipe)
 // - Modo pantalla completa
 // - Manejo de errores con reintentar
 // - Dark mode adaptado
 
-import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_pdfview/flutter_pdfview.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/app_logger.dart';
 import '../../core/services/pdf_cache_service.dart';
@@ -74,6 +77,16 @@ class _PremiumPdfViewerState extends State<PremiumPdfViewer>
       _isLoading = true;
       _errorMessage = null;
     });
+
+    // ✅ v1.6.0 WEB: sin sistema de archivos — el visor web muestra un
+    // botón que abre el PDF en una pestaña nueva (ver _buildBody).
+    if (kIsWeb) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+      });
+      return;
+    }
 
     // 1. Verificar si ya está descargado (offline)
     final cachedPath = PdfCacheService.getLocalPath(widget.url);
@@ -273,6 +286,9 @@ class _PremiumPdfViewerState extends State<PremiumPdfViewer>
   }
 
   Widget _buildDownloadButton() {
+    // ✅ v1.6.0 WEB: sin descargas offline
+    if (kIsWeb) return const SizedBox.shrink();
+
     final isDownloaded = PdfCacheService.isDownloaded(widget.url);
 
     if (isDownloaded) {
@@ -291,6 +307,13 @@ class _PremiumPdfViewerState extends State<PremiumPdfViewer>
   }
 
   Widget _buildBody(bool isDark) {
+    // ✅ v1.6.0 WEB: visor web — botón para abrir en pestaña nueva.
+    // El visor de PDF del navegador ofrece zoom, búsqueda y descarga
+    // nativos, mejor que cualquier visor embebido.
+    if (kIsWeb) {
+      return _buildWebViewer(isDark);
+    }
+
     // 1. Descargando
     if (_isDownloading && _localPath == null) {
       return _buildDownloadingWidget(isDark);
@@ -378,6 +401,85 @@ class _PremiumPdfViewerState extends State<PremiumPdfViewer>
             ),
           ),
       ],
+    );
+  }
+
+  /// ✅ v1.6.0 — Visor web: abre el PDF en una pestaña nueva.
+  Widget _buildWebViewer(bool isDark) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 88,
+              height: 88,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: const Icon(
+                Icons.picture_as_pdf_rounded,
+                size: 44,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              widget.title,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'El documento se abrirá en una pestaña nueva con el visor de tu navegador.',
+              style: TextStyle(
+                fontSize: 13,
+                color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () async {
+                final uri = Uri.parse(widget.url);
+                final ok = await launchUrl(uri,
+                    mode: LaunchMode.externalApplication,
+                    webOnlyWindowName: '_blank');
+                if (!ok) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('No se pudo abrir el documento'),
+                      backgroundColor: AppColors.error,
+                    ),
+                  );
+                }
+              },
+              icon: const Icon(Icons.open_in_new_rounded, size: 20),
+              label: const Text(
+                'Abrir documento',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: AppColors.textOnPrimary,
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
+import '../services/api_service.dart';
+import '../services/analytics_service.dart';
 import 'perfil_screen.dart';
 import '../widgets/global_scaffold.dart';
 import '../config/navigation.dart';
@@ -294,6 +296,10 @@ class _PerfilHubScreenState extends State<PerfilHubScreen>
                             _buildSupportSection(isDark),
                             const SizedBox(height: 24),
                             _buildLogoutButton(auth, isDark),
+
+                            // ✅ v1.6.0: eliminación de cuenta (Google Play / GDPR)
+                            const SizedBox(height: 12),
+                            _buildDeleteAccountButton(auth, isDark),
                           ],
                         ),
                       ),
@@ -1022,6 +1028,212 @@ class _PerfilHubScreenState extends State<PerfilHubScreen>
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // ═════════════════════════════════════════════════
+  // v1.6.0 — ELIMINAR CUENTA (Google Play / GDPR)
+  // ═════════════════════════════════════════════════
+
+  Widget _buildDeleteAccountButton(AuthService auth, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: TextButton(
+        onPressed: () => _showDeleteAccountDialog(auth),
+        style: TextButton.styleFrom(
+          foregroundColor: AppColors.error.withOpacity(0.8),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.delete_forever_rounded,
+                size: 18, color: AppColors.error.withOpacity(0.8)),
+            const SizedBox(width: 8),
+            Text(
+              'Eliminar mi cuenta',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppColors.error.withOpacity(0.8),
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showDeleteAccountDialog(AuthService auth) async {
+    final confirmController = TextEditingController();
+    final motivoController = TextEditingController();
+    bool borrando = false;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20)),
+              title: Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded,
+                      color: AppColors.error, size: 28),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text('¿Eliminar tu cuenta?',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Esta acción es permanente e irreversible. Se eliminarán:',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 10),
+                    _deleteBullet('Tu perfil, avatar y datos personales'),
+                    _deleteBullet('Todo tu progreso, XP, insignias y rachas'),
+                    _deleteBullet('Tus resultados de simulacros y retos'),
+                    _deleteBullet('Tus notificaciones y preferencias'),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Si tienes Premium activo, también perderás el acceso sin reembolso.',
+                      style: TextStyle(
+                          fontSize: 12, color: AppColors.error, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Para confirmar, escribe ELIMINAR en mayúsculas:',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: confirmController,
+                      enabled: !borrando,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: InputDecoration(
+                        hintText: 'ELIMINAR',
+                        isDense: true,
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: motivoController,
+                      enabled: !borrando,
+                      maxLength: 200,
+                      decoration: InputDecoration(
+                        hintText: 'Motivo (opcional): ¿por qué te vas?',
+                        isDense: true,
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed:
+                      borrando ? null : () => Navigator.pop(dialogContext),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: borrando
+                      ? null
+                      : () async {
+                          if (confirmController.text.trim().toUpperCase() !=
+                              'ELIMINAR') {
+                            ScaffoldMessenger.of(dialogContext).showSnackBar(
+                              const SnackBar(
+                                  content: Text(
+                                      'Escribe ELIMINAR para confirmar')),
+                            );
+                            return;
+                          }
+
+                          setDialogState(() => borrando = true);
+                          AnalyticsService.logAccountDeleteStarted();
+
+                          try {
+                            final api = context.read<ApiService>();
+                            await api.deleteAccount(
+                              confirm: 'ELIMINAR',
+                              motivo: motivoController.text.trim(),
+                            );
+
+                            if (!dialogContext.mounted) return;
+                            Navigator.pop(dialogContext);
+
+                            await auth.logout();
+                            if (mounted) {
+                              Nav.goToLoginAndClearStack(context);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                      'Tu cuenta ha sido eliminada. ¡Gracias por usar Saber+!'),
+                                  duration: Duration(seconds: 4),
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            if (!dialogContext.mounted) return;
+                            setDialogState(() => borrando = false);
+                            ScaffoldMessenger.of(dialogContext).showSnackBar(
+                              SnackBar(
+                                  content: Text(
+                                      'No se pudo eliminar la cuenta: $e')),
+                            );
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.error,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: borrando
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text('Eliminar definitivamente'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _deleteBullet(String texto) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 8, bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.close_rounded,
+              size: 14, color: AppColors.error.withOpacity(0.7)),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(texto,
+                style: const TextStyle(fontSize: 13)),
+          ),
+        ],
       ),
     );
   }

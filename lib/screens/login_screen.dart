@@ -7,6 +7,7 @@ import '../services/api_service.dart';
 import '../services/notifications_api.dart';
 import '../services/google_auth_service.dart';
 import '../services/biometric_service.dart';
+import '../services/analytics_service.dart';
 import '../providers/notification_provider.dart';
 import 'dashboard_screen.dart';
 import '../config/navigation.dart';
@@ -110,6 +111,7 @@ class _LoginScreenState extends State<LoginScreen>
       // Usuario nuevo → llevar al step2 con datos precargados
       if (result.isNewUser) {
         if (!mounted) return;
+        AnalyticsService.logSignUp(method: 'google');
         // Usar context.push para mantener el contexto y pasar los datos extra
         // El step2 completará el registro con departamento, ciudad, colegio, etc.
         Nav.goRegisterStep2(
@@ -123,6 +125,7 @@ class _LoginScreenState extends State<LoginScreen>
       }
 
       // Usuario existente → el redirect del GoRouter lo lleva al dashboard
+      AnalyticsService.logLogin(method: 'google');
       if (auth.isProfesor) {
         Nav.goTeacher(context);
       } else {
@@ -301,8 +304,12 @@ class _LoginScreenState extends State<LoginScreen>
       if (!ok) {
         if (!mounted) return;
         setState(() => _error = 'Credenciales inválidas');
+        AnalyticsService.logLogin(method: 'password_failed');
         return;
       }
+
+      // ✅ v1.6.0: analítica de login exitoso
+      AnalyticsService.logLogin(method: 'password');
 
       await _saveCredentials();
 

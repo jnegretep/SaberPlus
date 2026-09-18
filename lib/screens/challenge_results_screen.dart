@@ -6,6 +6,8 @@ import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import '../services/api_service.dart';
+import '../services/share_service.dart';
+import '../services/analytics_service.dart';
 import '../widgets/podium_widget.dart';
 import '../core/theme/app_colors.dart';
 
@@ -42,12 +44,52 @@ class _ChallengeResultsScreenState extends State<ChallengeResultsScreen> {
         _results = resp;
         _loading = false;
       });
+
+      // ✅ v1.6.0: analítica de reto completado
+      final ranking = (resp['ranking'] as List<dynamic>? ?? []);
+      final miUserId = widget.api.auth.userId;
+      int miPosicion = 0;
+      for (final e in ranking) {
+        final m = Map<String, dynamic>.from(e as Map);
+        if (miUserId != null && m['user_id'] == miUserId) {
+          miPosicion = (m['position'] as num?)?.toInt() ??
+              (m['posicion'] as num?)?.toInt() ?? 0;
+          break;
+        }
+      }
+      AnalyticsService.logChallengeCompleted(
+        position: miPosicion > 0 ? miPosicion : ranking.length,
+        xp: 0,
+      );
     } catch (e) {
       setState(() {
         _error = e.toString();
         _loading = false;
       });
     }
+  }
+
+  /// ✅ v1.6.0 — comparte el resultado del reto.
+  Future<void> _compartirResultado() async {
+    if (_results == null) return;
+    final ranking = (_results!['ranking'] as List<dynamic>? ?? [])
+        .map((e) => Map<String, dynamic>.from(e as Map))
+        .toList();
+    final miUserId = widget.api.auth.userId;
+
+    int miPosicion = 0;
+    for (final m in ranking) {
+      if (miUserId != null && m['user_id'] == miUserId) {
+        miPosicion = (m['position'] as num?)?.toInt() ??
+            (m['posicion'] as num?)?.toInt() ?? 0;
+        break;
+      }
+    }
+
+    await ShareService.shareChallengeResult(
+      posicion: miPosicion > 0 ? miPosicion : ranking.length,
+      totalJugadores: ranking.length,
+    );
   }
 
   // ==========================
@@ -759,6 +801,15 @@ return Scaffold(
         ),
       ],
     ),
+    // ✅ v1.6.0: compartir resultado
+    actions: [
+      IconButton(
+        icon: const Icon(Icons.share_rounded,
+            color: AppColors.textSecondary),
+        tooltip: 'Compartir resultado',
+        onPressed: _compartirResultado,
+      ),
+    ],
   ),
   body: RefreshIndicator(
     onRefresh: _loadResults,

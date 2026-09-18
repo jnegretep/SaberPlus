@@ -189,6 +189,16 @@ class GamificationProvider extends ChangeNotifier {
     return await _service.getRanking(period: period, limit: limit);
   }
 
+  /// v1.6.0 — Ranking institucional (colegios / departamentos).
+  Future<InstitutionRankingResponse?> getInstitutionRanking({
+    required String tipo,
+    String period = 'all_time',
+    int limit = 50,
+  }) async {
+    return await _service.getInstitutionRanking(
+        tipo: tipo, period: period, limit: limit);
+  }
+
   // ── Helpers para cálculo de nivel (misma fórmula que el backend) ──
 
   /// XP necesaria para alcanzar un nivel.

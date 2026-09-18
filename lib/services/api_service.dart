@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'dart:async';
 import 'dart:math';
 import 'auth_service.dart';
+import 'analytics_service.dart';
 import '../config/env.dart';
 import '../models/course.dart';
 import '../models/quiz.dart';
@@ -77,6 +78,33 @@ Future<Map<String, dynamic>> deleteChallenge({required int challengeId}) async {
   }
 
   return data;
+}
+
+/// v1.6.0 — Elimina la cuenta del usuario autenticado (GDPR / Google Play).
+/// Requiere que el usuario haya escrito "ELIMINAR" como confirmación.
+/// [motivo] es opcional y ayuda a mejorar el producto.
+Future<void> deleteAccount({required String confirm, String? motivo}) async {
+  final token = auth.token;
+  if (token == null) throw Exception('No estás autenticado');
+
+  final resp = await http.post(
+    Uri.parse('$_baseUrl/eliminar_cuenta.php'),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token',
+    },
+    body: jsonEncode({
+      'confirm': confirm,
+      if (motivo != null && motivo.isNotEmpty) 'motivo': motivo,
+    }),
+  );
+
+  final data = _safeDecode(resp);
+  if (data is! Map || data['status'] != 'ok') {
+    throw Exception(data is Map
+        ? (data['msg'] ?? 'No se pudo eliminar la cuenta')
+        : 'Error del servidor al eliminar la cuenta');
+  }
 }
 
 /// ---------------------------------------------------------------------------
@@ -925,6 +953,12 @@ Future<void> saveSimulacroResult(Map<String, dynamic> data) async {
   if (body is! Map || body['status'] != 'ok') {
     throw Exception('Error guardando estadísticas del simulacro');
   }
+
+  // ✅ v1.6.0: analítica de simulacro completado
+  AnalyticsService.logSimulacroCompleted(
+    score: (data['puntaje_global'] as num?)?.toDouble() ?? 0,
+    correctas: data['correctas'] is int ? data['correctas'] as int : null,
+  );
 }
 Future<Set<int>> fetchSimulacroAttempts(int userId) async {
   final url = Uri.parse('$baseUrl/simulacros/simulacros_attempts.php');

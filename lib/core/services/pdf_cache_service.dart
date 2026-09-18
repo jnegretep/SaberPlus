@@ -6,9 +6,11 @@
 // Se mantiene un registro en SharedPreferences.
 
 import 'dart:convert';
-import 'dart:io';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../io_shim/io_shim.dart'; // v1.6.0: dart:io con stub para web
 import '../utils/app_logger.dart';
 
 /// Información de un PDF descargado.
@@ -131,6 +133,9 @@ class PdfCacheService {
     String url, {
     void Function(int progress)? onProgress,
   }) async {
+    // v1.6.0 WEB: sin sistema de archivos — no hay descargas offline
+    if (kIsWeb) return null;
+
     // Si ya está descargado, devolver la ruta existente
     if (isDownloaded(url)) {
       AppLogger.d('PdfCacheService: $url ya está descargado');

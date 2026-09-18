@@ -1,18 +1,19 @@
 // lib/screens/xp_ranking_screen.dart
-// Saber+ — Pantalla de Ranking de XP (gamificación)
+// Saber+ — Pantalla de Ranking de XP (gamificación) v1.6.0
 //
-// Muestra el ranking de usuarios por XP ganada con diferentes períodos:
-// - All-time: ranking histórico por XP total
-// - Weekly: XP ganada en los últimos 7 días
-// - Monthly: XP ganada en los últimos 30 días
+// Muestra el ranking por XP con dos dimensiones:
+//  A) Estudiantes (v1.5): histórico / mensual / semanal
+//  B) Institucional (v1.6.0): ranking de COLEGIOS y DEPARTAMENTOS
+//     por XP acumulada de sus estudiantes — con posición de la
+//     institución propia destacada.
 //
 // Características:
+// - Selector de tipo (Estudiantes / Colegios / Departamentos)
 // - Podio animado para los top 3 (oro, plata, bronce)
-// - Lista de los siguientes 47 usuarios
-// - Tarjeta del usuario actual (aunque no esté en el top)
-// - Tabs para cambiar de período
-// - Pull-to-refresh
-// - Shimmer loading
+// - Lista de los siguientes lugares
+// - Tarjeta del usuario / institución actual
+// - Compartir posición en redes sociales (v1.6.0)
+// - Pull-to-refresh + shimmer loading
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -24,6 +25,7 @@ import '../core/utils/app_logger.dart';
 import '../providers/gamification_provider.dart';
 import '../models/ranking_entry.dart';
 import '../config/env.dart';
+import '../services/share_service.dart';
 
 class XpRankingScreen extends StatefulWidget {
   const XpRankingScreen({super.key});
@@ -39,6 +41,10 @@ class _XpRankingScreenState extends State<XpRankingScreen>
   RankingResponse? _rankingData;
   bool _isLoading = false;
   String? _error;
+
+  // ✅ v1.6.0 — dimensión del ranking
+  String _selectedType = 'estudiantes'; // 'estudiantes' | 'colegios' | 'departamentos'
+  InstitutionRankingResponse? _instRankingData;
 
   final List<_PeriodTab> _periods = [
     _PeriodTab(key: 'all_time', label: 'Histórico', icon: Icons.emoji_events_rounded),
@@ -82,21 +88,41 @@ class _XpRankingScreenState extends State<XpRankingScreen>
 
     try {
       final gamif = context.read<GamificationProvider>();
-      final data = await gamif.getRanking(
-        period: _selectedPeriod,
-        limit: 50,
-      );
 
-      if (!mounted) return;
+      // ✅ v1.6.0 — dispatch según la dimensión seleccionada
+      if (_selectedType == 'estudiantes') {
+        final data = await gamif.getRanking(
+          period: _selectedPeriod,
+          limit: 50,
+        );
 
-      setState(() {
-        _rankingData = data;
-        _isLoading = false;
-      });
+        if (!mounted) return;
 
-      AppLogger.i('Ranking cargado: período=$_selectedPeriod, '
-          '${data?.ranking.length ?? 0} entradas, '
-          'usuario en posición ${data?.userPosition ?? 'N/A'}');
+        setState(() {
+          _rankingData = data;
+          _isLoading = false;
+        });
+
+        AppLogger.i('Ranking cargado: período=$_selectedPeriod, '
+            '${data?.ranking.length ?? 0} entradas, '
+            'usuario en posición ${data?.userPosition ?? 'N/A'}');
+      } else {
+        final data = await gamif.getInstitutionRanking(
+          tipo: _selectedType,
+          period: _selectedPeriod,
+          limit: 50,
+        );
+
+        if (!mounted) return;
+
+        setState(() {
+          _instRankingData = data;
+          _isLoading = false;
+        });
+
+        AppLogger.i('Ranking institucional cargado: tipo=$_selectedType, '
+            '${data?.ranking.length ?? 0} instituciones');
+      }
     } catch (e) {
       AppLogger.e('Error cargando ranking', e);
       if (!mounted) return;
@@ -105,6 +131,15 @@ class _XpRankingScreenState extends State<XpRankingScreen>
         _isLoading = false;
       });
     }
+  }
+
+  /// ✅ v1.6.0 — cambia la dimensión (estudiantes / colegios / departamentos)
+  void _changeType(String newType) {
+    if (newType == _selectedType) return;
+    setState(() {
+      _selectedType = newType;
+    });
+    _loadRanking();
   }
 
   @override
@@ -120,6 +155,9 @@ class _XpRankingScreenState extends State<XpRankingScreen>
             // ── App Bar ──
             _buildAppBar(context, isDark),
 
+            // ── v1.6.0: selector de dimensión ──
+            _buildTypeSelector(isDark),
+
             // ── Tabs de período ──
             _buildPeriodTabs(isDark),
 
@@ -134,10 +172,15 @@ class _XpRankingScreenState extends State<XpRankingScreen>
                           color: AppColors.primary,
                           backgroundColor:
                               isDark ? AppColors.darkSurface : AppColors.surface,
-                          child: _rankingData == null ||
-                                  _rankingData!.ranking.isEmpty
-                              ? _buildEmptyState(isDark)
-                              : _buildRankingContent(isDark),
+                          child: _selectedType == 'estudiantes'
+                              ? (_rankingData == null ||
+                                      _rankingData!.ranking.isEmpty
+                                  ? _buildEmptyState(isDark)
+                                  : _buildRankingContent(isDark))
+                              : (_instRankingData == null ||
+                                      _instRankingData!.ranking.isEmpty
+                                  ? _buildEmptyState(isDark)
+                                  : _buildInstitutionContent(isDark)),
                         ),
             ),
           ],
@@ -151,6 +194,17 @@ class _XpRankingScreenState extends State<XpRankingScreen>
   // ═══════════════════════════════════════════════════
 
   Widget _buildAppBar(BuildContext context, bool isDark) {
+    final bool esInstitucional = _selectedType != 'estudiantes';
+    final String titulo = _selectedType == 'colegios'
+        ? 'Ranking de Colegios'
+        : _selectedType == 'departamentos'
+            ? 'Ranking de Departamentos'
+            : 'Ranking de XP';
+    final String subtitulo = esInstitucional
+        ? '${_instRankingData?.totalInstituciones ?? 0} '
+            '${_selectedType == 'colegios' ? "colegios" : "departamentos"} compitiendo'
+        : '${_rankingData?.totalUsers ?? 0} estudiantes compitiendo';
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Row(
@@ -165,7 +219,7 @@ class _XpRankingScreenState extends State<XpRankingScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Ranking de XP',
+                  titulo,
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
@@ -173,7 +227,7 @@ class _XpRankingScreenState extends State<XpRankingScreen>
                   ),
                 ),
                 Text(
-                  '${_rankingData?.totalUsers ?? 0} estudiantes compitiendo',
+                  subtitulo,
                   style: TextStyle(
                     fontSize: 11,
                     color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary,
@@ -182,11 +236,133 @@ class _XpRankingScreenState extends State<XpRankingScreen>
               ],
             ),
           ),
+
+          // ✅ v1.6.0: compartir posición
+          IconButton(
+            icon: Icon(
+              Icons.share_rounded,
+              color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary,
+            ),
+            onPressed: _compartirPosicion,
+            tooltip: 'Compartir mi posición',
+          ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             onPressed: _loadRanking,
             color: isDark ? AppColors.darkTextTertiary : AppColors.textTertiary,
           ),
+        ],
+      ),
+    );
+  }
+
+  /// ✅ v1.6.0 — comparte la posición actual (estudiante o institución)
+  Future<void> _compartirPosicion() async {
+    if (_selectedType == 'estudiantes') {
+      final data = _rankingData;
+      if (data == null || data.userPosition <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Aún no tienes posición en el ranking')),
+        );
+        return;
+      }
+      final gamif = context.read<GamificationProvider>();
+      await ShareService.shareRankingPosition(
+        posicion: data.userPosition,
+        total: data.totalUsers,
+        xp: gamif.state.totalXp,
+        tipo: 'estudiantes',
+      );
+    } else {
+      final data = _instRankingData;
+      final mia = data?.miInstitucion;
+      if (data == null || mia == null || mia.posicion <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_selectedType == 'colegios'
+              ? 'Tu colegio aún no aparece en el ranking'
+              : 'Tu departamento aún no aparece en el ranking')),
+        );
+        return;
+      }
+      await ShareService.shareRankingPosition(
+        posicion: mia.posicion,
+        total: data.totalInstituciones,
+        xp: mia.totalXp ?? 0,
+        tipo: _selectedType,
+      );
+    }
+  }
+
+  /// ✅ v1.6.0 — selector de dimensión del ranking.
+  Widget _buildTypeSelector(bool isDark) {
+    final tipos = [
+      {'key': 'estudiantes', 'label': 'Estudiantes', 'icon': Icons.person_rounded},
+      {'key': 'colegios', 'label': 'Colegios', 'icon': Icons.school_rounded},
+      {'key': 'departamentos', 'label': 'Departamentos', 'icon': Icons.map_rounded},
+    ];
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          for (final t in tipos)
+            Expanded(
+              child: GestureDetector(
+                onTap: () => _changeType(t['key'] as String),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  margin: EdgeInsets.only(
+                      right: t['key'] != 'departamentos' ? 8 : 0),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: _selectedType == t['key']
+                        ? AppColors.primary.withOpacity(0.12)
+                        : (isDark
+                            ? AppColors.darkSurface
+                            : AppColors.surface),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: _selectedType == t['key']
+                          ? AppColors.primary
+                          : Colors.transparent,
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        t['icon'] as IconData,
+                        size: 16,
+                        color: _selectedType == t['key']
+                            ? AppColors.primary
+                            : (isDark
+                                ? AppColors.darkTextTertiary
+                                : AppColors.textTertiary),
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          t['label'] as String,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: _selectedType == t['key']
+                                ? FontWeight.w800
+                                : FontWeight.w600,
+                            color: _selectedType == t['key']
+                                ? AppColors.primary
+                                : (isDark
+                                    ? AppColors.darkTextTertiary
+                                    : AppColors.textTertiary),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -274,6 +450,436 @@ class _XpRankingScreenState extends State<XpRankingScreen>
         const SliverToBoxAdapter(child: SizedBox(height: 32)),
       ],
     );
+  }
+
+  // ═══════════════════════════════════════════════════
+  // v1.6.0 — CONTENIDO INSTITUCIONAL (colegios / departamentos)
+  // ═══════════════════════════════════════════════════
+
+  Widget _buildInstitutionContent(bool isDark) {
+    final data = _instRankingData!;
+    final ranking = data.ranking;
+
+    return CustomScrollView(
+      slivers: [
+        // ── Podio institucional (top 3) ──
+        if (ranking.length >= 3)
+          SliverToBoxAdapter(
+            child: _buildInstitutionPodium(
+              [ranking[0], ranking[1], ranking[2]],
+              isDark,
+            ),
+          ),
+
+        // ── Lista del resto ──
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text(
+              ranking.length >= 3 ? 'Demás posiciones' : 'Ranking completo',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary,
+              ),
+            ),
+          ),
+        ),
+        SliverList(
+          delegate: SliverChildBuilderDelegate(
+            (context, index) {
+              final rankIndex = ranking.length >= 3 ? index + 3 : index;
+              if (rankIndex >= ranking.length) return null;
+              return _buildInstitutionTile(ranking[rankIndex], isDark);
+            },
+            childCount: ranking.length >= 3
+                ? ranking.length - 3
+                : ranking.length,
+          ),
+        ),
+
+        // ── Tarjeta de mi institución (si no está en el top) ──
+        if (data.miInstitucion != null &&
+            data.miInstitucion!.posicion > ranking.length)
+          SliverToBoxAdapter(
+            child: _buildMiInstitucionCard(isDark),
+          ),
+
+        const SliverToBoxAdapter(child: SizedBox(height: 32)),
+      ],
+    );
+  }
+
+  /// Podio olímpico institucional: 2.º izq, 1.º centro, 3.º der.
+  Widget _buildInstitutionPodium(
+      List<InstitutionRankingEntry> top3, bool isDark) {
+    final second = top3[1];
+    final first = top3[0];
+    final third = top3[2];
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      padding: const EdgeInsets.fromLTRB(8, 24, 8, 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isDark
+              ? [AppColors.darkSurface, AppColors.darkSurfaceVariant]
+              : [AppColors.surface, AppColors.surfaceVariant],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.shadowSm,
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // 2do lugar
+          _buildInstitutionPodiumColumn(
+            second, 66, const Color(0xFFC0C0C0), '2', isDark,
+            key: const ValueKey('inst-second'),
+          ),
+          // 1er lugar
+          _buildInstitutionPodiumColumn(
+            first, 86, const Color(0xFFFFD700), '1', isDark,
+            key: const ValueKey('inst-first'),
+          ),
+          // 3er lugar
+          _buildInstitutionPodiumColumn(
+            third, 54, const Color(0xFFCD7F32), '3', isDark,
+            key: const ValueKey('inst-third'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInstitutionPodiumColumn(
+    InstitutionRankingEntry entry,
+    double altura,
+    Color colorMedalla,
+    String lugar,
+    bool isDark, {
+    Key? key,
+  }) {
+    return SizedBox(
+      key: key,
+      width: 104,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Avatar de la institución
+          Container(
+            width: lugar == '1' ? 52 : 44,
+            height: lugar == '1' ? 52 : 44,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [colorMedalla, colorMedalla.withOpacity(0.6)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: colorMedalla.withOpacity(0.4),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Center(
+              child: Icon(
+                _selectedType == 'colegios'
+                    ? Icons.school_rounded
+                    : Icons.map_rounded,
+                color: Colors.white,
+                size: lugar == '1' ? 26 : 22,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            entry.nombre,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: lugar == '1' ? 12 : 10.5,
+              fontWeight: FontWeight.w800,
+              color: isDark ? AppColors.darkTextPrimary : AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            _formatXp(entry.totalXp),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Base del podio
+          Container(
+            height: altura,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  colorMedalla.withOpacity(0.85),
+                  colorMedalla.withOpacity(0.55),
+                ],
+              ),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(12),
+              ),
+            ),
+            child: Center(
+              child: Text(
+                lugar,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Tile de institución en la lista (posición 4+).
+  Widget _buildInstitutionTile(InstitutionRankingEntry entry, bool isDark) {
+    final bool destacada = entry.esMia;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: destacada
+            ? AppColors.primary.withOpacity(0.10)
+            : (isDark ? AppColors.darkSurface : AppColors.surface),
+        borderRadius: BorderRadius.circular(14),
+        border: destacada
+            ? Border.all(color: AppColors.primary, width: 1.5)
+            : null,
+        boxShadow: destacada
+            ? null
+            : [
+                BoxShadow(
+                  color: AppColors.shadowSm,
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+      ),
+      child: Row(
+        children: [
+          // Posición
+          SizedBox(
+            width: 34,
+            child: Text(
+              '${entry.posicion}',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: entry.posicion <= 3
+                    ? AppColors.warning
+                    : (isDark
+                        ? AppColors.darkTextTertiary
+                        : AppColors.textTertiary),
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Avatar institución
+          CircleAvatar(
+            radius: 18,
+            backgroundColor: AppColors.primary.withOpacity(0.12),
+            child: Icon(
+              _selectedType == 'colegios'
+                  ? Icons.school_rounded
+                  : Icons.map_rounded,
+              size: 18,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(width: 12),
+          // Nombre + detalles
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  entry.nombre,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: destacada ? FontWeight.w800 : FontWeight.w700,
+                    color:
+                        isDark ? AppColors.darkTextPrimary : AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  [
+                    '${entry.usuarios} est.',
+                    if (entry.ciudad != null && _selectedType == 'colegios')
+                      entry.ciudad!,
+                  ].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark
+                        ? AppColors.darkTextTertiary
+                        : AppColors.textTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // XP
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.bolt_rounded,
+                      size: 14, color: AppColors.primary),
+                  const SizedBox(width: 2),
+                  Text(
+                    _formatXp(entry.totalXp),
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ],
+              ),
+              if (destacada)
+                Text(
+                  'Tu ${_selectedType == 'colegios' ? 'colegio' : 'departamento'}',
+                  style: const TextStyle(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.primary,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Tarjeta con la posición de la institución propia (fuera del top).
+  Widget _buildMiInstitucionCard(bool isDark) {
+    final data = _instRankingData!;
+    final mia = data.miInstitucion!;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [AppColors.primary, AppColors.primaryDark],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withOpacity(0.35),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Tu ${_selectedType == 'colegios' ? 'colegio' : 'departamento'}',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textOnPrimary.withOpacity(0.9),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            mia.nombre,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textOnPrimary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildUserStat(
+                  'Posición',
+                  '#${mia.posicion}',
+                  Icons.emoji_events_rounded,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildUserStat(
+                  'Estudiantes',
+                  '${mia.usuarios ?? '—'}',
+                  Icons.group_rounded,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => ShareService.shareRankingPosition(
+                posicion: mia.posicion,
+                total: data.totalInstituciones,
+                xp: mia.totalXp ?? 0,
+                tipo: _selectedType,
+              ),
+              icon: const Icon(Icons.share_rounded, size: 16),
+              label: const Text('Compartir'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.textOnPrimary,
+                foregroundColor: AppColors.primary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatXp(int xp) {
+    if (xp >= 1000000) return '${(xp / 1000000).toStringAsFixed(1)}M';
+    if (xp >= 1000) return '${(xp / 1000).toStringAsFixed(1)}k';
+    return '$xp';
   }
 
   /// Construye el podio animado para los top 3.

@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
+import '../services/analytics_service.dart';
 import '../core/constants/app_constants.dart';
 import '../core/utils/app_logger.dart';
 import '../models/course.dart';
@@ -75,6 +76,8 @@ GoRouter buildAppRouter({
   return GoRouter(
     initialLocation: initialLocation,
     debugLogDiagnostics: true,
+    // ✅ v1.6.0: observer de analítica (screen_view en Firebase + backend)
+    observers: [AnalyticsService.observer],
     // ✅ FIX #1: refreshListenable permite que el router reaccione a cambios
     // de auth SIN necesidad de recrear el router. Esto evita que tras login
     // el usuario sea devuelto a la pantalla inicial.

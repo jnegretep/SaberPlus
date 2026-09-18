@@ -3,10 +3,16 @@
 //
 // Auto-contenido: crea su propio Dio y toma el JWT de un callback.
 // No depende de DioClient ni de ApiService internals.
+//
+// v1.6.0 WEB: en web getToken() requiere una VAPID key. Si
+// Env.firebaseVapidKey está configurada se usa; si no, el push web
+// queda deshabilitado (la app funciona sin notificaciones en web).
 
 import 'package:dio/dio.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
+import '../config/env.dart';
 import '../core/utils/app_logger.dart';
 
 class FcmService {
@@ -42,7 +48,19 @@ class FcmService {
     }
 
     try {
-      final token = await FirebaseMessaging.instance.getToken();
+      // ✅ v1.6.0 WEB: en web, getToken() necesita vapidKey. Sin ella,
+      // se omite la sincronización (push deshabilitado en web).
+      final String? token;
+      if (kIsWeb) {
+        final vapid = Env.firebaseVapidKey;
+        if (vapid.isEmpty) {
+          AppLogger.d('FcmService: push web deshabilitado (sin VAPID key)');
+          return;
+        }
+        token = await FirebaseMessaging.instance.getToken(vapidKey: vapid);
+      } else {
+        token = await FirebaseMessaging.instance.getToken();
+      }
       if (token == null || token.isEmpty) {
         AppLogger.w('FcmService: no hay token FCM disponible aún');
         return;

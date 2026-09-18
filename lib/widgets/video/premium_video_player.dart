@@ -10,7 +10,8 @@
 // - Manejo de errores mejorado con botón reintentar
 // - Placeholder con thumbnail/poster mientras carga
 
-import 'dart:io';
+import '../../core/io_shim/io_shim.dart'; // v1.6.0: dart:io con stub para web
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
@@ -369,6 +370,9 @@ class _PremiumVideoPlayerState extends State<PremiumVideoPlayer>
   Widget _buildActionBar(bool isDark) {
     // Si está verificando descarga, no mostrar nada
     if (_isCheckingDownload) return const SizedBox.shrink();
+
+    // ✅ v1.6.0 WEB: sin descargas offline — solo streaming
+    if (kIsWeb) return const SizedBox.shrink();
 
     final info = _downloadInfo;
 

@@ -16,6 +16,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import '../services/analytics_service.dart';
 import '../models/plan.dart';
 import '../core/theme/app_colors.dart';
 import '../core/animations/app_animations.dart';
@@ -88,6 +89,9 @@ class _UpgradeScreenState extends State<UpgradeScreen>
           _loading = false;
         });
         _entranceController.forward();
+
+        // ✅ v1.6.0: analítica de paywall visto
+        AnalyticsService.logPaywallViewed();
       }
     } catch (e) {
       AppLogger.e('UpgradeScreen: error cargando planes', e);
@@ -120,6 +124,12 @@ class _UpgradeScreenState extends State<UpgradeScreen>
       final String checkoutUrl = data['checkout_url'];
 
       AppLogger.d('Wompi URL: $checkoutUrl');
+
+      // ✅ v1.6.0: analítica de inicio de compra
+      AnalyticsService.logPurchaseStarted(
+        plan: selectedPlan.code,
+        priceCop: selectedPlan.price,
+      );
 
       final uri = Uri.parse(checkoutUrl);
       final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);

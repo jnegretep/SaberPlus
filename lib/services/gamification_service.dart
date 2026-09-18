@@ -11,6 +11,7 @@ import '../core/services/dio_client.dart';
 import '../core/utils/app_logger.dart';
 import '../models/gamification_state.dart';
 import '../models/ranking_entry.dart';
+import 'analytics_service.dart';
 
 class GamificationService {
   /// Obtiene el estado completo de gamificación del usuario autenticado.
@@ -100,6 +101,38 @@ class GamificationService {
       return null;
     } catch (e) {
       AppLogger.e('GamificationService.getRanking error', e);
+      return null;
+    }
+  }
+
+  /// v1.6.0 — Ranking institucional (colegios o departamentos).
+  ///
+  /// [tipo] puede ser: 'colegios' | 'departamentos'.
+  /// [period] puede ser: 'all_time', 'weekly', 'monthly'.
+  Future<InstitutionRankingResponse?> getInstitutionRanking({
+    required String tipo,
+    String period = 'all_time',
+    int limit = 50,
+  }) async {
+    try {
+      AnalyticsService.logRankingViewed(tipo: tipo);
+
+      final response = await DioClient.post(
+        '/ranking_institucional.php',
+        data: {'tipo': tipo, 'period': period, 'limit': limit},
+      );
+      if (response.statusCode != 200) return null;
+
+      final data = response.data as Map<String, dynamic>;
+      if (data['status'] != 'ok') return null;
+
+      return InstitutionRankingResponse.fromJson(
+          data['data'] as Map<String, dynamic>);
+    } on DioException catch (e) {
+      AppLogger.e('GamificationService.getInstitutionRanking Dio error', e);
+      return null;
+    } catch (e) {
+      AppLogger.e('GamificationService.getInstitutionRanking error', e);
       return null;
     }
   }

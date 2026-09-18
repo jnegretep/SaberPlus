@@ -78,6 +78,13 @@ class Env {
   static String get firebaseMeasurementId =>
       dotenv.env['FIREBASE_MEASUREMENT_ID'] ?? '';
 
+  /// VAPID key para FCM en web (opcional).
+  /// Se genera en Firebase Console → Cloud Messaging → Web Push certificates.
+  /// Si está vacía, las notificaciones push quedan deshabilitadas en web
+  /// (el resto de la app funciona normalmente).
+  static String get firebaseVapidKey =>
+      dotenv.env['FIREBASE_VAPID_KEY'] ?? '';
+
   /// Helpers
   static bool get isConfigured =>
       dotenv.env['API_BASE_URL'] != null &&

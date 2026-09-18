@@ -11,10 +11,12 @@
 // - Al abrir un video, se verifica si ya está descargado
 
 import 'dart:convert';
-import 'dart:io';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_downloader/flutter_downloader.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../io_shim/io_shim.dart'; // v1.6.0: dart:io con stub para web
 import '../utils/app_logger.dart';
 
 /// Estado de una descarga de video.
@@ -208,6 +210,9 @@ class VideoDownloadService {
     String url, {
     void Function(VideoDownloadInfo)? onProgress,
   }) async {
+    // v1.6.0 WEB: sin descargas offline (streaming únicamente)
+    if (kIsWeb) return;
+
     // Si ya está descargado, no hacer nada
     if (await isDownloaded(url)) {
       AppLogger.d('VideoDownloadService: $url ya está descargado');

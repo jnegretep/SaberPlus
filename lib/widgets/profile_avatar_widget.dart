@@ -1,4 +1,4 @@
-import 'dart:io';
+import '../core/io_shim/io_shim.dart'; // v1.6.0: dart:io con stub para web
 import 'package:flutter/material.dart';
 import '../core/theme/app_colors.dart';
 

@@ -2,7 +2,11 @@
 // Saber+ — Biometric Authentication Service v1.0
 // Wrapper sobre local_auth para mostrar el prompt nativo de huella/rostro.
 // No maneja tokens ni sesión — eso lo hace AuthService.loginWithBiometric().
+//
+// v1.6.0 WEB: local_auth no tiene soporte web. Todos los métodos
+// reportan "unavailable" en kIsWeb y la UI oculta las opciones biométricas.
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:local_auth/local_auth.dart';
 import '../core/utils/app_logger.dart';
 
@@ -23,6 +27,9 @@ class BiometricService {
   /// Retorna el nivel de soporte para que el frontend pueda mostrar
   /// mensajes de UI apropiados.
   static Future<BiometricSupport> checkSupport() async {
+    // v1.6.0 WEB: sin plugin en web
+    if (kIsWeb) return BiometricSupport.unavailable;
+
     try {
       final canCheck = await _auth.canCheckBiometrics;
       final isDeviceSupported = await _auth.isDeviceSupported();
@@ -71,6 +78,9 @@ class BiometricService {
   static Future<bool> authenticate({
     String reason = 'Autentícate para ingresar a Saber+',
   }) async {
+    // v1.6.0 WEB: sin plugin en web
+    if (kIsWeb) return false;
+
     try {
       AppLogger.d('BiometricService.authenticate: mostrando prompt...');
 
