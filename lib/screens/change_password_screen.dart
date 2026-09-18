@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import '../services/auth_service.dart';
@@ -86,10 +87,10 @@ try {
 
     if (!mounted) return;
 
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      '/login',
-      (route) => false,
-    );
+    // 🐛 FIX (2026-09): con MaterialApp.router NO existen rutas nombradas —
+    // pushNamedAndRemoveUntil('/login') crasheaba justo después de un cambio
+    // de contraseña exitoso. Se usa context.go para limpiar el stack.
+    context.go('/login');
     return;
   }
 
@@ -119,10 +120,8 @@ try {
 
       if (!mounted) return;
 
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        '/login',
-        (route) => false,
-      );
+      // 🐛 FIX (2026-09): ídem — navegar con el router, no con rutas nombradas inexistentes.
+      context.go('/login');
     } else {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

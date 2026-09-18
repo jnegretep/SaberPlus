@@ -46,13 +46,25 @@ android {
 
     buildTypes {
         getByName("release") {
-            signingConfig = if (keystorePropertiesFile.exists()) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
+            // 🔒 FIX (2026-09): un release NUNCA debe firmarse con la clave debug.
+            // Antes, si faltaba key.properties, el APK salía firmado con debug
+            // (no actualizable en Play Store y trivialmente suplantable).
+            // Ahora el build FALLA con instrucciones claras.
+            if (!keystorePropertiesFile.exists()) {
+                throw GradleException(
+                    "FALTA android/key.properties — no se puede firmar el release.\n" +
+                    "Crea el archivo con: storeFile, storePassword, keyAlias, keyPassword\n" +
+                    "(ver README.md — sección Firma de release)"
+                )
             }
-            isMinifyEnabled = false
-            isShrinkResources = false
+            signingConfig = signingConfigs.getByName("release")
+            // 🔒 Reducción de tamaño + ofuscación (R8)
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 }

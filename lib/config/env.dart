@@ -1,7 +1,13 @@
 // lib/config/env.dart
-// Centraliza toda la configuración de entorno usando flutter_dotenv.
+// Centraliza toda la configuración de entorno.
 // ⚠️ NUNCA hardcodear URLs ni keys — siempre usar esta clase.
-// ⚠️ Si .env no está configurado, la app falla explícitamente
+//
+// Orden de prioridad (desde 2026-09):
+//   1. --dart-define (compile-time, NO se empaqueta .env en el APK):
+//      flutter build apk --dart-define=API_BASE_URL=https://...
+//   2. .env empaquetado (legacy — seguirá funcionando durante la migración).
+//
+// ⚠️ Si ninguna fuente está configurada, la app falla explícitamente
 //    en lugar de conectar a un servidor desconocido.
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -9,31 +15,46 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 class Env {
   Env._();
 
+  /// Lee una variable desde .env (fuente legacy).
+  /// Las variables inyectables en compilación usan constantes explícitas
+  /// abajo, porque `String.fromEnvironment` no admite claves dinámicas.
+  static String? _read(String key) {
+    final fromDotenv = dotenv.env[key];
+    if (fromDotenv != null && fromDotenv.isNotEmpty) return fromDotenv;
+    return null;
+  }
+
   /// Verifica que las variables de entorno críticas estén presentes.
   /// Lanza [EnvNotConfiguredException] si falta alguna.
   static void ensureConfigured() {
-    if (dotenv.env['API_BASE_URL'] == null ||
-        dotenv.env['API_BASE_URL']!.isEmpty) {
+    if (apiBaseUrl.isEmpty) {
       throw EnvNotConfiguredException(
         'API_BASE_URL no está configurada. '
-        'Asegúrate de que el archivo .env exista y contenga API_BASE_URL.',
+        'Compila con --dart-define=API_BASE_URL=https://... '
+        'o asegúrate de que el archivo .env exista y la contenga.',
       );
     }
   }
 
+  // ── Variables inyectables en compilación (--dart-define) ──
+  // Prioridad: dart-define > .env
+  static const _ddApiBaseUrl = String.fromEnvironment('API_BASE_URL');
+  static const _ddAvatarBaseUrl = String.fromEnvironment('AVATAR_BASE_URL');
+  static const _ddDefaultAvatarUrl = String.fromEnvironment('DEFAULT_AVATAR_URL');
+  static const _ddAiApiUrl = String.fromEnvironment('AI_API_URL');
+
   /// API Backend
   static String get apiBaseUrl =>
-      dotenv.env['API_BASE_URL'] ?? (throw _missing('API_BASE_URL'));
+      _ddApiBaseUrl.isNotEmpty ? _ddApiBaseUrl : (_read('API_BASE_URL') ?? (throw _missing('API_BASE_URL')));
 
   static String get avatarBaseUrl =>
-      dotenv.env['AVATAR_BASE_URL'] ?? (throw _missing('AVATAR_BASE_URL'));
+      _ddAvatarBaseUrl.isNotEmpty ? _ddAvatarBaseUrl : (_read('AVATAR_BASE_URL') ?? (throw _missing('AVATAR_BASE_URL')));
 
   static String get defaultAvatarUrl =>
-      dotenv.env['DEFAULT_AVATAR_URL'] ??
-      (throw _missing('DEFAULT_AVATAR_URL'));
+      _ddDefaultAvatarUrl.isNotEmpty ? _ddDefaultAvatarUrl : (_read('DEFAULT_AVATAR_URL') ?? (throw _missing('DEFAULT_AVATAR_URL')));
 
   static String get aiApiUrl =>
-      dotenv.env['AI_API_URL'] ?? (throw _missing('AI_API_URL'));
+      _ddAiApiUrl.isNotEmpty ? _ddAiApiUrl : (_read('AI_API_URL') ?? (throw _missing('AI_API_URL')));
 
   /// Firebase Web
   static String get firebaseApiKey =>
