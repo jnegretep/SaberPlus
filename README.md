@@ -2,10 +2,22 @@
 
 **Preparación para las Pruebas Saber 11 (ICFES) — Colombia**
 
-App móvil (Flutter) que prepara a estudiantes de grado 11° para el examen
-Saber 11 del ICFES: cursos, simulacros, retos en tiempo real, gamificación
-(XP, rachas, medallas, rankings), tutor con IA, estadísticas por área y
-predicción de puntaje.
+App **multiplataforma** (Android + iOS + **Web**) que prepara a estudiantes
+de grado 11° para el examen Saber 11 del ICFES: cursos, simulacros, retos
+en tiempo real, gamificación (XP, rachas, medallas, rankings por colegio y
+departamento), tutor con IA, estadísticas por área y predicción de puntaje.
+
+## ✨ Novedades v1.6.0
+
+- 🗑️ **Eliminación de cuenta** in-app (requisito Google Play / GDPR)
+- 🏫 **Rankings institucionales**: colegios y departamentos con podio olímpico
+- 📲 **Compartir resultados** en redes sociales (retos, simulacros, insignias, posición)
+- 📊 **Firebase Analytics + Crashlytics** integrados + espejo propio en el backend
+- 🛠️ **Panel admin ampliado**: Analítica, Errores, Actividad, Rankings institucionales
+- 🌐 **Soporte Flutter Web** completo: responsive de escritorio, splash, PWA —
+  ver **[DESPLIEGUE_WEB.md](DESPLIEGUE_WEB.md)**
+
+Detalles completos: **[CAMBIOS_v1.6.0.md](CAMBIOS_v1.6.0.md)**
 
 ## 🧱 Arquitectura general
 
@@ -77,6 +89,17 @@ keyPassword=********
 flutter build appbundle --release
 ```
 
+### 4. Build web (v1.6.0+)
+
+```bash
+# Completar antes FIREBASE_APP_ID y FIREBASE_MEASUREMENT_ID en .env
+flutter build web --release          # raíz de dominio
+flutter build web --release --base-href /app/   # subcarpeta
+```
+
+Guía completa: **[DESPLIEGUE_WEB.md](DESPLIEGUE_WEB.md)** (Firebase Web,
+CORS ya resuelto, hosting, checklist de verificación).
+
 ## 🔒 Seguridad
 
 - Ver **[GUÍA_DE_SEGURIDAD.md](GUÍA_DE_SEGURIDAD.md)** para la rotación de
@@ -88,26 +111,28 @@ flutter build appbundle --release
 
 ```
 lib/
-├── config/          # Env, router (GoRouter), navegación
-├── core/            # Tema, widgets base, servicios cache/dio, utils
+├── config/          # Env, router (GoRouter + observer analytics), navegación
+├── core/            # Tema, widgets base, servicios cache/dio, utils, io_shim (web)
 ├── controllers/     # Controladores (quiz)
-├── models/          # Modelos JSON tipados
+├── models/          # Modelos JSON tipados (incl. rankings institucionales)
 ├── providers/       # ChangeNotifier providers (auth, gamification, etc.)
 ├── screens/         # Pantallas (auth, dashboard, quiz, retos, stats, teacher)
-├── services/        # API services (auth, gamification, plan, FCM, IA...)
+├── services/        # API services (auth, gamification, plan, FCM, analytics,
+│                    #   share, IA...)
 ├── parsers/         # Parsers (quiz_question_parser)
 └── widgets/         # Widgets compartidos (charts, gamification, dashboard)
 
 backend/
 ├── env.php          # Cargador de configuración (.env) — NUNCA editar secretos en PHP
 ├── .env.example     # Plantilla de configuración
-├── includes/        # Conexión BD, config Moodle, cliente Moodle, JWT
+├── includes/        # Conexión BD, config Moodle, cliente Moodle, JWT, analytics
 ├── challenges/      # Retos 1v1 (crear, responder, resultados)
 ├── simulacros/      # Resultados, rankings, stats de simulacros
 ├── stats/           # Estadísticas por área
 ├── moodle/          # Proxy de Web Services de Moodle
-├── admin/           # Panel básico de administración
-└── migrations/      # Esquemas SQL
+├── admin/           # Panel de administración (dashboard, analítica, errores,
+│                    #   actividad, rankings, usuarios, planes, notificaciones)
+└── migrations/      # Esquemas SQL (001 planes, 002 gamificación, 003 analytics)
 ```
 
 ## 🧪 Testing
