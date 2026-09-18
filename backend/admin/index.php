@@ -95,6 +95,19 @@ if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== tru
 // ── Router de secciones ──
  $section = $_GET['section'] ?? 'dashboard';
 
+// ── Acciones POST del admin (v1.6.0) ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resolve_error'])) {
+    $errId = (int)$_POST['resolve_error'];
+    try {
+        $stmt = $conexion->prepare("UPDATE error_logs SET resolved = 1 WHERE id = ?");
+        $stmt->execute([$errId]);
+    } catch (Exception $e) {
+        error_log('[ADMIN] resolve_error: ' . $e->getMessage());
+    }
+    header('Location: index.php?section=errors');
+    exit;
+}
+
 // ── Obtener estadisticas globales ──
  $stats = [];
 try {
@@ -165,6 +178,17 @@ try {
         .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 10px 14px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 14px; }
         .form-group input:focus, .form-group select:focus { outline: none; border-color: #1E4ED8; }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+        .badge-red { background: #FEE2E2; color: #991B1B; }
+        .badge-gray { background: #E5E7EB; color: #374151; }
+        .badge-yellow { background: #FEF3C7; color: #92400E; }
+        .mono { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; }
+        .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+        .bar-label { width: 84px; font-size: 12px; color: #64748b; text-align: right; flex-shrink: 0; }
+        .bar-track { flex: 1; background: #f1f5f9; border-radius: 6px; height: 18px; overflow: hidden; }
+        .bar-fill { height: 100%; background: #1E4ED8; border-radius: 6px; min-width: 2px; }
+        .bar-fill.green { background: #22C55E; }
+        .bar-value { width: 46px; font-size: 12px; font-weight: 700; color: #334155; flex-shrink: 0; }
+        .muted { color: #94A3B8; font-size: 13px; }
         @media (max-width: 768px) { .sidebar { display: none; } .main-content { margin-left: 0; padding: 16px; } .grid-2 { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -181,6 +205,10 @@ try {
     <a href="index.php?section=ads" class="nav-item <?= $section === 'ads' ? 'active' : '' ?>"><span class="nav-icon">&#128227;</span> Anuncios</a>
     <a href="index.php?section=plans" class="nav-item <?= $section === 'plans' ? 'active' : '' ?>"><span class="nav-icon">&#128179;</span> Planes</a>
     <a href="index.php?section=notifications" class="nav-item <?= $section === 'notifications' ? 'active' : '' ?>"><span class="nav-icon">&#128276;</span> Notificaciones</a>
+    <a href="index.php?section=analytics" class="nav-item <?= $section === 'analytics' ? 'active' : '' ?>"><span class="nav-icon">&#128200;</span> Analítica</a>
+    <a href="index.php?section=errors" class="nav-item <?= $section === 'errors' ? 'active' : '' ?>"><span class="nav-icon">&#9888;</span> Errores</a>
+    <a href="index.php?section=activity" class="nav-item <?= $section === 'activity' ? 'active' : '' ?>"><span class="nav-icon">&#128293;</span> Actividad</a>
+    <a href="index.php?section=rankings" class="nav-item <?= $section === 'rankings' ? 'active' : '' ?>"><span class="nav-icon">&#127942;</span> Rankings Inst.</a>
     <a href="index.php?section=reports" class="nav-item <?= $section === 'reports' ? 'active' : '' ?>"><span class="nav-icon">&#128196;</span> Reportes</a>
     <a href="index.php?logout=1" class="nav-item" style="margin-top: 32px; color: rgba(255,255,255,0.5);"><span class="nav-icon">&#10148;</span> Cerrar Sesion</a>
 </div>
@@ -476,6 +504,299 @@ try {
                 </table>
             </div>
         </div>
+    <?php elseif ($section === 'analytics'): ?>
+        <!-- ANALITICA (v1.6.0) -->
+        <?php
+        $analyticsAvailable = true;
+        $an = [];
+        try {
+            $an['eventos_hoy']    = (int)$conexion->query("SELECT COUNT(*) FROM app_events WHERE created_at >= CURDATE()")->fetchColumn();
+            $an['eventos_7d']     = (int)$conexion->query("SELECT COUNT(*) FROM app_events WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)")->fetchColumn();
+            $an['usuarios_act_hoy'] = (int)$conexion->query("SELECT COUNT(DISTINCT user_id) FROM app_events WHERE created_at >= CURDATE() AND user_id IS NOT NULL")->fetchColumn();
+            $an['usuarios_act_7d']  = (int)$conexion->query("SELECT COUNT(DISTINCT user_id) FROM app_events WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) AND user_id IS NOT NULL")->fetchColumn();
+            $an['errores_app_7d']   = (int)$conexion->query("SELECT COUNT(*) FROM error_logs WHERE source = 'app' AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)")->fetchColumn();
+        } catch (Exception $e) {
+            $analyticsAvailable = false;
+        }
+        ?>
+        <?php if (!$analyticsAvailable): ?>
+            <div class="section-card">
+                <h3 class="section-title">Analítica no disponible</h3>
+                <p class="muted">Las tablas <code>app_events</code> / <code>error_logs</code> no existen todavía.
+                Ejecuta la migración: <code>mysql -u jnegretep -p prepsaber &lt; backend/migrations/003_analytics_admin.sql</code></p>
+            </div>
+        <?php else: ?>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon" style="background: #DBEAFE;">&#128200;</div>
+                <div class="stat-value"><?= number_format($an['eventos_hoy']) ?></div>
+                <div class="stat-label">Eventos Hoy</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon" style="background: #D1FAE5;">&#128640;</div>
+                <div class="stat-value"><?= number_format($an['eventos_7d']) ?></div>
+                <div class="stat-label">Eventos 7 días</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon" style="background: #FEF3C7;">&#128100;</div>
+                <div class="stat-value"><?= $an['usuarios_act_hoy'] ?></div>
+                <div class="stat-label">Usuarios Activos Hoy (eventos)</div>
+                <div class="stat-change">7 días: <?= $an['usuarios_act_7d'] ?></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon" style="background: #FEE2E2;">&#9888;</div>
+                <div class="stat-value"><?= $an['errores_app_7d'] ?></div>
+                <div class="stat-label">Errores de App (7 días)</div>
+            </div>
+        </div>
+
+        <div class="section-card">
+            <h3 class="section-title">Eventos por Tipo (últimos 7 días)</h3>
+            <?php
+            $topEvents = $conexion->query("
+                SELECT event_name, COUNT(*) as total
+                FROM app_events
+                WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                GROUP BY event_name ORDER BY total DESC LIMIT 12
+            ")->fetchAll(PDO::FETCH_ASSOC);
+            $maxEvent = max(1, (int)($topEvents[0]['total'] ?? 1));
+            if (!$topEvents): ?>
+                <p class="muted">Aún no hay eventos registrados. Los eventos llegan desde la app v1.6.0+.</p>
+            <?php else: foreach ($topEvents as $ev): ?>
+                <div class="bar-row">
+                    <div class="bar-label"><?= htmlspecialchars($ev['event_name']) ?></div>
+                    <div class="bar-track"><div class="bar-fill" style="width: <?= round($ev['total'] / $maxEvent * 100) ?>%"></div></div>
+                    <div class="bar-value"><?= number_format($ev['total']) ?></div>
+                </div>
+            <?php endforeach; endif; ?>
+        </div>
+
+        <div class="grid-2">
+            <div class="section-card">
+                <h3 class="section-title">Plataformas (30 días)</h3>
+                <?php
+                $platforms = $conexion->query("
+                    SELECT platform, COUNT(*) as total
+                    FROM app_events
+                    WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+                    GROUP BY platform ORDER BY total DESC
+                ")->fetchAll(PDO::FETCH_ASSOC);
+                $maxPlat = max(1, (int)($platforms[0]['total'] ?? 1));
+                if (!$platforms): ?>
+                    <p class="muted">Sin datos aún.</p>
+                <?php else: foreach ($platforms as $p): ?>
+                    <div class="bar-row">
+                        <div class="bar-label"><?= htmlspecialchars($p['platform']) ?></div>
+                        <div class="bar-track"><div class="bar-fill green" style="width: <?= round($p['total'] / $maxPlat * 100) ?>%"></div></div>
+                        <div class="bar-value"><?= number_format($p['total']) ?></div>
+                    </div>
+                <?php endforeach; endif; ?>
+            </div>
+            <div class="section-card">
+                <h3 class="section-title">Retención aproximada</h3>
+                <?php
+                try {
+                    $act1 = (int)$conexion->query("SELECT COUNT(DISTINCT user_id) FROM app_events WHERE user_id IS NOT NULL AND created_at >= CURDATE()")->fetchColumn();
+                    $act7 = (int)$conexion->query("SELECT COUNT(DISTINCT user_id) FROM app_events WHERE user_id IS NOT NULL AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)")->fetchColumn();
+                    $total = (int)$conexion->query("SELECT COUNT(*) FROM usuarios WHERE email_verificado = 1")->fetchColumn();
+                    $retencion = $act7 > 0 ? round(($act1 / $act7) * 100, 1) : 0;
+                } catch (Exception $e) { $act1 = $act7 = $total = 0; $retencion = 0; }
+                ?>
+                <div class="bar-row"><div class="bar-label">DAU/WAU</div><div class="bar-track"><div class="bar-fill" style="width: <?= min(100, $retencion) ?>%"></div></div><div class="bar-value"><?= $retencion ?>%</div></div>
+                <p class="muted" style="margin-top:12px;">DAU (hoy): <strong><?= $act1 ?></strong> · WAU (7d): <strong><?= $act7 ?></strong> · Verificados: <strong><?= $total ?></strong></p>
+                <p class="muted">Ratio calculado con usuarios que generaron eventos (app v1.6.0+). Complementa con Firebase Analytics para datos completos.</p>
+            </div>
+        </div>
+        <?php endif; ?>
+
+    <?php elseif ($section === 'errors'): ?>
+        <!-- ERRORES (v1.6.0) -->
+        <?php
+        $errorsAvailable = true;
+        $errStats = [];
+        try {
+            $errStats['total'] = (int)$conexion->query("SELECT COUNT(*) FROM error_logs")->fetchColumn();
+            $errStats['unresolved'] = (int)$conexion->query("SELECT COUNT(*) FROM error_logs WHERE resolved = 0")->fetchColumn();
+            $errStats['fatal_7d'] = (int)$conexion->query("SELECT COUNT(*) FROM error_logs WHERE severity = 'fatal' AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)")->fetchColumn();
+        } catch (Exception $e) {
+            $errorsAvailable = false;
+        }
+        ?>
+        <?php if (!$errorsAvailable): ?>
+            <div class="section-card">
+                <h3 class="section-title">Visor de errores no disponible</h3>
+                <p class="muted">Ejecuta la migración 003: <code>backend/migrations/003_analytics_admin.sql</code></p>
+            </div>
+        <?php else: ?>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon" style="background: #FEE2E2;">&#128680;</div>
+                <div class="stat-value"><?= number_format($errStats['total']) ?></div>
+                <div class="stat-label">Errores Totales</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon" style="background: #FEF3C7;">&#9888;</div>
+                <div class="stat-value"><?= number_format($errStats['unresolved']) ?></div>
+                <div class="stat-label">Sin Resolver</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon" style="background: #FED7AA;">&#128165;</div>
+                <div class="stat-value"><?= number_format($errStats['fatal_7d']) ?></div>
+                <div class="stat-label">Fatales (7 días)</div>
+            </div>
+        </div>
+        <div class="table-container">
+            <table>
+                <thead><tr><th>Fecha</th><th>Origen</th><th>Severidad</th><th>Código</th><th>Mensaje</th><th>Usuario</th><th>Plataforma</th><th>Estado</th><th></th></tr></thead>
+                <tbody>
+                <?php
+                $errores = $conexion->query("
+                    SELECT e.*, u.nombre
+                    FROM error_logs e
+                    LEFT JOIN usuarios u ON e.user_id = u.id_usuario
+                    ORDER BY e.created_at DESC LIMIT 100
+                ")->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($errores as $er):
+                    $sevBadge = match($er['severity']) {
+                        'fatal' => 'badge-red',
+                        'warning' => 'badge-yellow',
+                        'info' => 'badge-gray',
+                        default => 'badge-orange',
+                    };
+                ?>
+                    <tr>
+                        <td class="mono"><?= $er['created_at'] ?></td>
+                        <td><span class="badge badge-blue"><?= htmlspecialchars($er['source']) ?></span></td>
+                        <td><span class="badge <?= $sevBadge ?>"><?= htmlspecialchars($er['severity']) ?></span></td>
+                        <td class="mono"><?= htmlspecialchars($er['error_code'] ?? '-') ?></td>
+                        <td title="<?= htmlspecialchars(mb_substr($er['message'], 0, 300)) ?>"><?= htmlspecialchars(mb_substr($er['message'], 0, 90)) ?><?= mb_strlen($er['message']) > 90 ? '...' : '' ?></td>
+                        <td><?= $er['user_id'] ? htmlspecialchars($er['nombre'] ?? ('#' . $er['user_id'])) : '-' ?></td>
+                        <td><?= htmlspecialchars($er['platform'] ?? '-') ?></td>
+                        <td><?= $er['resolved'] ? '<span class="badge badge-green">Resuelto</span>' : '<span class="badge badge-orange">Abierto</span>' ?></td>
+                        <td>
+                            <?php if (!$er['resolved']): ?>
+                            <form method="POST" style="display:inline;">
+                                <input type="hidden" name="resolve_error" value="<?= $er['id'] ?>">
+                                <button type="submit" class="btn btn-success" style="padding:4px 10px;font-size:11px;">✓</button>
+                            </form>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php endif; ?>
+
+    <?php elseif ($section === 'activity'): ?>
+        <!-- ACTIVIDAD (v1.6.0) -->
+        <?php
+        $activityAvailable = true;
+        $eventos = [];
+        try {
+            $eventos = $conexion->query("
+                SELECT e.*, u.nombre
+                FROM app_events e
+                LEFT JOIN usuarios u ON e.user_id = u.id_usuario
+                ORDER BY e.created_at DESC LIMIT 100
+            ")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            $activityAvailable = false;
+        }
+        ?>
+        <?php if (!$activityAvailable): ?>
+            <div class="section-card">
+                <h3 class="section-title">Actividad no disponible</h3>
+                <p class="muted">Ejecuta la migración 003: <code>backend/migrations/003_analytics_admin.sql</code></p>
+            </div>
+        <?php else: ?>
+        <div class="table-container">
+            <table>
+                <thead><tr><th>Fecha</th><th>Usuario</th><th>Evento</th><th>Plataforma</th><th>Versión</th><th>Parámetros</th></tr></thead>
+                <tbody>
+                <?php if (!$eventos): ?>
+                    <tr><td colspan="6" class="muted" style="text-align:center;padding:24px;">Sin eventos aún — llegarán desde la app v1.6.0+</td></tr>
+                <?php else: foreach ($eventos as $ev): ?>
+                    <tr>
+                        <td class="mono"><?= $ev['created_at'] ?></td>
+                        <td><?= $ev['user_id'] ? htmlspecialchars($ev['nombre'] ?? ('#' . $ev['user_id'])) : '<span class="muted">anónimo</span>' ?></td>
+                        <td><span class="badge badge-blue"><?= htmlspecialchars($ev['event_name']) ?></span></td>
+                        <td><?= htmlspecialchars($ev['platform'] ?? '-') ?></td>
+                        <td class="mono"><?= htmlspecialchars($ev['app_version'] ?? '-') ?></td>
+                        <td class="mono" title="<?= htmlspecialchars((string)$ev['params']) ?>"><?= htmlspecialchars(mb_substr((string)$ev['params'], 0, 60)) ?><?= mb_strlen((string)$ev['params']) > 60 ? '...' : '' ?></td>
+                    </tr>
+                <?php endforeach; endif; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php endif; ?>
+
+    <?php elseif ($section === 'rankings'): ?>
+        <!-- RANKINGS INSTITUCIONALES (v1.6.0) -->
+        <div class="grid-2">
+            <div class="section-card">
+                <h3 class="section-title">🏆 Top Colegios por XP</h3>
+                <div class="table-container">
+                    <table>
+                        <thead><tr><th>#</th><th>Colegio</th><th>Depto</th><th>Usuarios</th><th>XP Total</th><th>Nivel Prom.</th></tr></thead>
+                        <tbody>
+                        <?php
+                        $colegiosTop = $conexion->query("
+                            SELECT TRIM(u.colegio) as colegio, MAX(TRIM(u.departamento)) as depto,
+                                   COUNT(DISTINCT u.id_usuario) as usuarios,
+                                   SUM(ug.total_xp) as xp, ROUND(AVG(ug.current_level),1) as nivel
+                            FROM usuarios u JOIN user_gamification ug ON ug.user_id = u.id_usuario
+                            WHERE u.colegio IS NOT NULL AND TRIM(u.colegio) <> '' AND u.email_verificado = 1 AND ug.total_xp > 0
+                            GROUP BY TRIM(u.colegio) ORDER BY xp DESC LIMIT 25
+                        ")->fetchAll(PDO::FETCH_ASSOC);
+                        if (!$colegiosTop): ?>
+                            <tr><td colspan="6" class="muted" style="text-align:center;padding:24px;">Sin datos aún.</td></tr>
+                        <?php else: foreach ($colegiosTop as $i => $c): ?>
+                            <tr>
+                                <td><?= $i + 1 ?></td>
+                                <td><?= htmlspecialchars($c['colegio']) ?></td>
+                                <td><?= htmlspecialchars($c['depto'] ?? '-') ?></td>
+                                <td><?= $c['usuarios'] ?></td>
+                                <td><strong><?= number_format((float)$c['xp']) ?></strong></td>
+                                <td><?= $c['nivel'] ?></td>
+                            </tr>
+                        <?php endforeach; endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="section-card">
+                <h3 class="section-title">🗺️ Top Departamentos por XP</h3>
+                <div class="table-container">
+                    <table>
+                        <thead><tr><th>#</th><th>Departamento</th><th>Usuarios</th><th>XP Total</th><th>Nivel Prom.</th></tr></thead>
+                        <tbody>
+                        <?php
+                        $deptosTop = $conexion->query("
+                            SELECT TRIM(u.departamento) as depto,
+                                   COUNT(DISTINCT u.id_usuario) as usuarios,
+                                   SUM(ug.total_xp) as xp, ROUND(AVG(ug.current_level),1) as nivel
+                            FROM usuarios u JOIN user_gamification ug ON ug.user_id = u.id_usuario
+                            WHERE u.departamento IS NOT NULL AND TRIM(u.departamento) <> '' AND u.email_verificado = 1 AND ug.total_xp > 0
+                            GROUP BY TRIM(u.departamento) ORDER BY xp DESC LIMIT 25
+                        ")->fetchAll(PDO::FETCH_ASSOC);
+                        if (!$deptosTop): ?>
+                            <tr><td colspan="5" class="muted" style="text-align:center;padding:24px;">Sin datos aún.</td></tr>
+                        <?php else: foreach ($deptosTop as $i => $d): ?>
+                            <tr>
+                                <td><?= $i + 1 ?></td>
+                                <td><?= htmlspecialchars($d['depto']) ?></td>
+                                <td><?= $d['usuarios'] ?></td>
+                                <td><strong><?= number_format((float)$d['xp']) ?></strong></td>
+                                <td><?= $d['nivel'] ?></td>
+                            </tr>
+                        <?php endforeach; endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
     <?php endif; ?>
 </div>
 </body>
