@@ -7,11 +7,17 @@ session_start();
 
 require_once __DIR__ . '/../includes/conexion.php';
 require_once __DIR__ . '/../includes/config.php';
+require_once __DIR__ . '/../env.php';
 
-// ── Configuracion de acceso admin ──
-// Cambiar estas credenciales en produccion
- $ADMIN_USER = 'admin';
- $ADMIN_PASS = 'saberplus2026';
+// ── Configuracion de acceso admin (desde backend/.env) ──
+$ADMIN_USER = env('ADMIN_USER', '');
+$ADMIN_PASS = env('ADMIN_PASS', '');
+
+// Fail-closed: sin credenciales configuradas, el panel queda cerrado
+if ($ADMIN_USER === '' || $ADMIN_PASS === '') {
+    http_response_code(503);
+    exit('Panel de administracion no configurado. Define ADMIN_USER y ADMIN_PASS en backend/.env');
+}
 
 // ── Login ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {

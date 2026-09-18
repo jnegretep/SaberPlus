@@ -1,11 +1,14 @@
 <?php
 // wompi_config.php
-// ✅ Actualizado a HTTPS para el nuevo dominio
+// ⚠️ TODAS las llaves se leen de variables de entorno (backend/.env).
+//    Ninguna llave de producción debe estar escrita en el código.
+require_once __DIR__ . '/env.php';
+
 return [
-    'public_key'   => 'pub_prod_gSFzmpYJuYAt2ALRMIF9edb86w7gdDQ9',
-    'private_key'  => 'prv_prod_u8TLiNWX5fplD3rL7BvoV5AE43ZzpUU2',
-    'events_secret'=> 'prod_events_PcmnIXxmXhuJKNfx0KFfiV0udcDS2V7j',
-    'integrity'    => 'prod_integrity_ofgKaEpSvgxKiBImSq4idGZIaY02ByNh',
+    'public_key'   => env_required('WOMPI_PUBLIC_KEY'),
+    'private_key'  => env_required('WOMPI_PRIVATE_KEY'),
+    'events_secret'=> env_required('WOMPI_EVENTS_SECRET'),
+    'integrity'    => env_required('WOMPI_INTEGRITY_SECRET'),
 
     'currency'     => 'COP',
     'redirect_url' => 'https://corpoinstel.edu.co/api/prepsaber/backend/wompi_return.php',

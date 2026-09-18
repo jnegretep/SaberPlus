@@ -1,13 +1,24 @@
-
 <?php
 // /var/www/html/api/prepsaber/backend/cron_inactividad.php (final, listo para reemplazar)
 
 require __DIR__ . '/includes/conexion.php';
 require __DIR__ . '/vendor/autoload.php';
 
+// â”€â”€ Guard de acceso: CLI permitido (cron del servidor), HTTP exige X-Internal-Token â”€â”€
+require_once __DIR__ . '/env.php';
+if (PHP_SAPI !== 'cli') {
+    $internalToken = env('INTERNAL_TOKEN', '');
+    $headerToken   = $_SERVER['HTTP_X_INTERNAL_TOKEN'] ?? '';
+    if ($internalToken === '' || !hash_equals($internalToken, (string)$headerToken)) {
+        http_response_code(403);
+        header('Content-Type: application/json; charset=UTF-8');
+        exit(json_encode(['status' => 'error', 'msg' => 'No autorizado']));
+    }
+}
+
 use Kreait\Firebase\Factory;
 
-// Forzar sesión MySQL en UTC y utf8mb4
+// Forzar sesiÃ³n MySQL en UTC y utf8mb4
 try {
     $conexion->exec("SET time_zone = '+00:00'");
     $conexion->exec("SET NAMES utf8mb4");
@@ -57,7 +68,7 @@ function userHasToken($pdo, $userId) {
 }
 
 try {
-    // Seleccionar usuarios con inactividad de 7, 15 o 30 días
+    // Seleccionar usuarios con inactividad de 7, 15 o 30 dÃ­as
     $sql = "SELECT id_usuario, DATEDIFF(NOW(), ultimo_login) AS dias, last_inactivity_notified
             FROM usuarios
             WHERE ultimo_login IS NOT NULL
@@ -70,7 +81,7 @@ try {
             $userId = (int)$row['id_usuario'];
             $dias = (int)$row['dias'];
 
-            // Evitar duplicados: si ya se notificó ese hito, saltar
+            // Evitar duplicados: si ya se notificÃ³ ese hito, saltar
             if (!empty($row['last_inactivity_notified']) && $row['last_inactivity_notified'] >= $dias) {
                 error_log("[cron_inactividad] skip user={$userId} already notified for dias={$dias}");
                 continue;
@@ -118,7 +129,7 @@ try {
                 error_log("[cron_inactividad][WARN] send HTTP={$res['http']} err={$res['error']}");
             }
 
-            // Reintento único en fallos transitorios (HTTP 5xx o curl error)
+            // Reintento Ãºnico en fallos transitorios (HTTP 5xx o curl error)
             if (!$ok && ($res['http'] >= 500 || $res['error'])) {
                 error_log("[cron_inactividad] retrying once for user={$userId} dias={$dias}");
                 sleep(1);
@@ -141,7 +152,7 @@ try {
             }
 
             if ($ok) {
-                // Marcar el hito como notificado solo si el envío fue exitoso
+                // Marcar el hito como notificado solo si el envÃ­o fue exitoso
                 try {
                     $upd = $conexion->prepare("UPDATE usuarios SET last_inactivity_notified=? WHERE id_usuario=?");
                     $upd->execute([$dias, $userId]);
@@ -153,7 +164,7 @@ try {
                 error_log("[cron_inactividad] NOT marked last_inactivity_notified for user={$userId} dias={$dias}");
             }
 
-            // pequeña pausa para evitar ráfagas
+            // pequeÃ±a pausa para evitar rÃ¡fagas
             usleep(150000); // 150ms
         } catch (Throwable $rowEx) {
             error_log("[cron_inactividad][ROW-ERROR] user={$row['id_usuario']} ".$rowEx->getMessage());

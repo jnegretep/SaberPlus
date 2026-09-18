@@ -1,13 +1,17 @@
 <?php
 // jwt_config.php
+// ⚠️ El secreto se lee de la variable de entorno JWT_SECRET (backend/.env).
+//    Genera uno nuevo con: openssl rand -hex 32
+require_once __DIR__ . '/env.php';
+
 return [
-    'secret'         => '90c5de59689bec58fe84e8f2006a6e7bafaffb906e4996e63ceee55fe2cfc9a9',
+    'secret'         => env_required('JWT_SECRET'),
     'algo'           => 'HS256',
     'issuer'         => 'prep-saber',
     'audience'       => 'prep-saber-users',
     'expiry_seconds' => 86400, // 24 horas
     
-    // Validaci�n adicional
+    // Validación adicional
     'validate' => function($config) {
         if (empty($config['secret']) || strlen($config['secret']) < 32) {
             throw new Exception('JWT secret must be at least 32 characters');

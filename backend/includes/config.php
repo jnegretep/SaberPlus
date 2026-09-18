@@ -6,13 +6,16 @@
 // Este es el ÚNICO lugar donde se definen las URLs del sistema.
 // Todos los demás archivos PHP deben usar estas constantes.
 //
-// Para cambiar de servidor, solo se modifica este archivo.
+// ⚠️ LOS SECRETOS NO VIVEN AQUÍ: se leen desde variables de
+// entorno / backend/.env a través de env.php (ver .env.example).
 // ============================================================
+
+require_once __DIR__ . '/../env.php';
 
 // ── URLs del sistema ──
 // Moodle (plataforma de cursos)
 if (!defined('MOODLE_BASE_URL')) {
-    define('MOODLE_BASE_URL', 'https://preicfes.corpoinstel.edu.co');
+    define('MOODLE_BASE_URL', env('MOODLE_BASE_URL', 'https://preicfes.corpoinstel.edu.co'));
 }
 
 // Backend (esta API)
@@ -30,9 +33,9 @@ if (!defined('MOODLE_LOGIN_ENDPOINT')) {
 }
 
 // ── Token del Web Service de Moodle ──
-// Token con permisos de lectura/escritura para los WS de Moodle
+// ⚠️ Se lee de la variable de entorno MOODLE_WS_TOKEN (backend/.env)
 if (!defined('MOODLE_WS_TOKEN')) {
-    define('MOODLE_WS_TOKEN', '37663518c05c753401b5fa535ceb7316');
+    define('MOODLE_WS_TOKEN', env_required('MOODLE_WS_TOKEN'));
 }
 
 // ── Servicio de Moodle Mobile App ──

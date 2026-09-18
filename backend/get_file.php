@@ -35,6 +35,23 @@ $token = MOODLE_WS_TOKEN;
 // ======================================================
 $url = urldecode($url);
 
+// ⚠️ SEGURIDAD (fix 2026-09): WHITELIST de host — este proxy SOLO puede
+// descargar de la instancia de Moodle configurada. Antes aceptaba
+// cualquier URL con "pluginfile.php" (SSRF + fuga del token WS a
+// servidores atacantes).
+$allowedHost = strtolower(parse_url(MOODLE_BASE_URL, PHP_URL_HOST) ?? '');
+$urlHost     = strtolower(parse_url($url, PHP_URL_HOST) ?? '');
+
+if ($allowedHost === '' || $urlHost === '' || $urlHost !== $allowedHost) {
+    http_response_code(400);
+    header("Content-Type: application/json; charset=UTF-8");
+    echo json_encode(['status' => 'error', 'msg' => 'Origen no permitido']);
+    exit;
+}
+
+// Forzar HTTPS hacia Moodle (nunca cleartext con el token)
+$url = preg_replace('#^http://#i', 'https://', $url);
+
 // Corregir coma en IP (172,93.49.94 -> 172.93.49.94) — legacy de la IP antigua
 $url = preg_replace('/(\d+),(\d+\.\d+\.\d+)/', '$1.$2', $url);
 
@@ -86,8 +103,9 @@ $ch = curl_init($url);
 curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_FOLLOWLOCATION => true,
-    CURLOPT_SSL_VERIFYPEER => false,
-    CURLOPT_SSL_VERIFYHOST => false,
+    // ⚠️ Verificación TLS activada: sin ella un MITM puede interceptar el token
+    CURLOPT_SSL_VERIFYPEER => true,
+    CURLOPT_SSL_VERIFYHOST => 2,
     CURLOPT_HEADER => true,
     CURLOPT_USERAGENT => 'Mozilla/5.0 (compatible; PrepSaberProxy/1.0)',
     CURLOPT_TIMEOUT => 30,
@@ -113,10 +131,6 @@ if ($httpcode !== 200 || !$body) {
         'status' => 'error',
         'msg' => 'No se pudo obtener el archivo',
         'httpcode' => $httpcode,
-        'url' => $url,
-        'type' => $contentType,
-        'errno' => $errno,
-        'error' => $error,
     ]);
     exit;
 }

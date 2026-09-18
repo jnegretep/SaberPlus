@@ -1,9 +1,12 @@
 <?php
 /**
  * wompi_return.php
- * P·gina de aterrizaje tras el pago
+ * P√°gina de aterrizaje tras el pago
  */
-$id = $_GET['id'] ?? null; // Wompi envÌa el ID de transacciÛn por URL
+$id = $_GET['id'] ?? null; // Wompi env√≠a el ID de transacci√≥n por URL
+// ‚ö†Ô∏è XSS FIX: sanitizar y escapar SIEMPRE cualquier valor que venga por URL
+// antes de inyectarlo en HTML/JavaScript. json_encode produce un literal JS seguro.
+$idSafe = is_string($id) ? preg_replace('/[^a-zA-Z0-9\-]/', '', $id) : '';
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -22,7 +25,7 @@ $id = $_GET['id'] ?? null; // Wompi envÌa el ID de transacciÛn por URL
 <body>
     <div class="container vh-100 d-flex align-items-center justify-content-center">
         <div class="card p-5 text-center" style="max-width: 450px; width: 100%;">
-            <img src="http://corpoinstel.edu.co/api/prepsaber/backend/logo.jpg" alt="Logo" class="logo mx-auto">
+            <img src="https://corpoinstel.edu.co/api/prepsaber/backend/logo.jpg" alt="Logo" class="logo mx-auto">
             
             <div id="loading">
                 <div class="spinner-border text-primary" role="status"></div>
@@ -38,22 +41,23 @@ $id = $_GET['id'] ?? null; // Wompi envÌa el ID de transacciÛn por URL
     </div>
 
     <script>
-        // Consultar el estado real de la transacciÛn a la API de Wompi
-        const transactionId = "<?php echo $id; ?>";
+        // Consultar el estado real de la transacci√≥n a la API de Wompi
+        // ‚ö†Ô∏è XSS FIX: valor saneado server-side + json_encode para el literal JS
+        const transactionId = <?php echo json_encode($idSafe); ?>;
         
         if (!transactionId) {
-            showResult("Error", "No se encontrÛ la informaciÛn del pago.", "text-danger");
+            showResult("Error", "No se encontr√≥ la informaci√≥n del pago.", "text-danger");
         } else {
             fetch(`https://production.wompi.co/v1/transactions/${transactionId}`)
                 .then(response => response.json())
                 .then(res => {
                     const status = res.data.status;
                     if (status === 'APPROVED') {
-                        showResult("°Pago Exitoso!", "Tu cuenta ha sido activada como Premium. Ya puedes disfrutar de todo el contenido.", "text-success");
+                        showResult("¬°Pago Exitoso!", "Tu cuenta ha sido activada como Premium. Ya puedes disfrutar de todo el contenido.", "text-success");
                     } else if (status === 'PENDING') {
-                        showResult("Pago Pendiente", "Tu pago se est· procesando. Te avisaremos cuando finalice.", "text-warning");
+                        showResult("Pago Pendiente", "Tu pago se est√° procesando. Te avisaremos cuando finalice.", "text-warning");
                     } else {
-                        showResult("Pago No Realizado", "La transacciÛn fue rechazada o cancelada.", "text-danger");
+                        showResult("Pago No Realizado", "La transacci√≥n fue rechazada o cancelada.", "text-danger");
                     }
                 })
                 .catch(err => {

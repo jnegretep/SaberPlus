@@ -1,21 +1,50 @@
 <?php
-// api_saber_plus_ia.php
+// api_saber_plus_ia.php — Tutor IA de Saber+ (DeepSeek)
+// ⚠️ SEGURIDAD: requiere JWT del usuario autenticado; el moodle_id se toma
+// del token, nunca del body. La API key vive en backend/.env.
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: POST');
-header('Access-Control-Allow-Headers: Content-Type');
+header('Access-Control-Allow-Methods: POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
 
-require_once __DIR__ . '/includes/conexion.php'; 
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
+require_once __DIR__ . '/includes/conexion.php';
+require_once __DIR__ . '/env.php';
+
+// ── Autenticación JWT obligatoria ──
+$allHeaders = function_exists('getallheaders') ? getallheaders() : [];
+$authHeader = $allHeaders['Authorization'] ?? $allHeaders['authorization'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+
+if (!preg_match('/Bearer\s+(\S+)/', $authHeader, $m)) {
+    http_response_code(401);
+    echo json_encode(["exito" => false, "error" => "No autorizado"]);
+    exit;
+}
+
+$configJwt = require __DIR__ . '/jwt_config.php';
+try {
+    $decoded = \Firebase\JWT\JWT::decode($m[1], new \Firebase\JWT\Key($configJwt['secret'], 'HS256'));
+    // El moodle_id SIEMPRE viene del token autenticado — ignora cualquier valor del body
+    $moodle_id = (int)($decoded->data->moodle_userid ?? 0);
+} catch (Exception $e) {
+    http_response_code(401);
+    echo json_encode(["exito" => false, "error" => "Token inválido"]);
+    exit;
+}
+
+if ($moodle_id <= 0) {
+    http_response_code(401);
+    echo json_encode(["exito" => false, "error" => "Token sin identificador de usuario"]);
+    exit;
+}
 
 $data = json_decode(file_get_contents('php://input'), true);
 
-$moodle_id = $data['moodle_id'] ?? null;
 $mensaje_estudiante = $data['mensaje'] ?? '';
-
-if (!$moodle_id || trim($mensaje_estudiante) === '') {
-    echo json_encode(["exito" => false, "error" => "Falta el moodle_id o el mensaje"]);
-    exit;
-}
 
 try {
     // Obtener datos del usuario
@@ -139,8 +168,8 @@ try {
 
     $prompt_sistema .= "\nREGLAS: Máximo 300 tokens. Usa **negritas** si es necesario. Saluda con '¡Hola {$nombre}!' si lo conoces.\n";
 
-    // Conectar con DeepSeek
-    $api_key = 'sk-d8728470d5fa4b47934c24b4a2a0d048'; 
+    // Conectar con DeepSeek — API key desde backend/.env
+    $api_key = env_required('DEEPSEEK_API_KEY'); 
     $url = 'https://api.deepseek.com/chat/completions';
 
     $payload = [
@@ -178,18 +207,18 @@ try {
             "respuesta" => $texto_ia
         ]);
     } else {
+        error_log("[IA][DEEPSEEK] HTTP {$httpcode} para moodle_id={$moodle_id}");
         echo json_encode([
             "exito" => false, 
-            "error" => "Error de DeepSeek", 
-            "detalle" => $response
+            "error" => "El tutor IA no está disponible en este momento. Intenta más tarde."
         ]);
     }
 
 } catch (Exception $e) {
+    error_log("[IA][ERROR] " . $e->getMessage());
     echo json_encode([
         "exito" => false, 
-        "error" => "Error del servidor PHP", 
-        "detalle" => $e->getMessage()
+        "error" => "Error del servidor. Intenta más tarde."
     ]);
 }
 ?>

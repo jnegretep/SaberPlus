@@ -4,6 +4,18 @@
 require __DIR__ . '/includes/conexion.php';
 require __DIR__ . '/vendor/autoload.php';
 
+// ── Guard de acceso: CLI permitido (cron del servidor), HTTP exige X-Internal-Token ──
+require_once __DIR__ . '/env.php';
+if (PHP_SAPI !== 'cli') {
+    $internalToken = env('INTERNAL_TOKEN', '');
+    $headerToken   = $_SERVER['HTTP_X_INTERNAL_TOKEN'] ?? '';
+    if ($internalToken === '' || !hash_equals($internalToken, (string)$headerToken)) {
+        http_response_code(403);
+        header('Content-Type: application/json; charset=UTF-8');
+        exit(json_encode(['status' => 'error', 'msg' => 'No autorizado']));
+    }
+}
+
 use Kreait\Firebase\Factory;
 
 // Lockfile para evitar concurrencia
@@ -92,7 +104,7 @@ try {
                     }
                 }
 
-                // Reintento �nico en fallos transitorios
+                // Reintento único en fallos transitorios
                 if (!$ok && ($res['http'] >= 500 || $res['error'])) {
                     error_log("[cron_simulacros] retrying 5h once for simulacro={$simId} user={$userId}");
                     sleep(1);
