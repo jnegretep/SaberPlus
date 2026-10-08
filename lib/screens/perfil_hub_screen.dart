@@ -847,12 +847,12 @@ class _PerfilHubScreenState extends State<PerfilHubScreen>
           child: Column(
             children: [
               _buildSupportItem(
-                icon: Icons.help_outline_rounded,
-                title: 'Centro de ayuda',
-                subtitle: 'Preguntas frecuentes',
+                icon: Icons.support_agent_rounded,
+                title: 'Ayuda y Soporte',
+                subtitle: 'Quejas, sugerencias y respuestas',
                 textColor: textColor,
                 subColor: subColor,
-                onTap: () {},
+                onTap: () => Nav.goSoporte(context),
               ),
               Divider(height: 16, color: AppColors.surfaceVariant),
               _buildSupportItem(

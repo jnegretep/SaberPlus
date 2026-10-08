@@ -1,5 +1,5 @@
 // lib/main.dart
-// Saber+ — Entry point v1.6.0
+// Saber+ — Entry point v1.6.1
 // Cambios vs v1.5.1:
 //   - ✅ v1.6.0: Firebase Analytics + Crashlytics integrados (AnalyticsService)
 //   - ✅ v1.6.0: WEB — flutter_downloader (sin soporte web) se omite en kIsWeb
@@ -8,6 +8,14 @@
 //   - ✅ FIX #1+#3: GoRouter estable — creado UNA sola vez en initState()
 //   - ✅ initialLocation prioriza auth.token sobre isFirstTime
 //   - 🔧 FCM FIX: el token FCM ahora se sincroniza con el backend
+//   - ✅ v1.6.1 WEB: shell adaptativo — ≤700px móvil natural; 700–1100px
+//     marco tipo teléfono de 620px sobre degradado oscuro + glow azul;
+//     >1100px fondo de escritorio elegante (dark/light) con watermark del
+//     logo. El rail lateral de escritorio lo aporta GlobalScaffold
+//     (widgets/web_desktop_shell.dart).
+//   - 🔧 v1.6.2: Firebase init en Android también es NO FATAL. Si el
+//     plugin nativo no está registrado (channel-error), la app arranca
+//     igual sin push/analytics en lugar de quedarse en el splash.
 
 import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:flutter/material.dart';
@@ -22,6 +30,7 @@ import 'package:intl/date_symbol_data_local.dart';
 
 import 'config/env.dart';
 import 'config/app_router.dart';
+import 'core/theme/app_colors.dart';
 import 'core/theme/app_theme.dart';
 import 'core/utils/app_logger.dart';
 import 'core/constants/app_constants.dart';
@@ -41,6 +50,7 @@ import 'providers/notification_provider.dart';
 import 'providers/theme_provider.dart';
 import 'services/notifications_api.dart';
 import 'services/plan_service.dart';
+import 'widgets/web_desktop_shell.dart';
 
 // ── Firebase Background Handler ──
 @pragma('vm:entry-point')
@@ -71,6 +81,8 @@ Future<void> main() async {
   // ✅ v1.6.0 WEB: la inicialización es NO FATAL. Si falta la
   // configuración web de Firebase (FIREBASE_APP_ID etc.), la app
   // sigue funcionando sin analítica/notificaciones push.
+  // ✅ v1.6.2 ANDROID: mismo criterio. Si el plugin nativo no está
+  // registrado (channel-error), la app arranca igual sin push/analytics.
   if (kIsWeb) {
     try {
       await Firebase.initializeApp(
@@ -89,15 +101,29 @@ Future<void> main() async {
           'analítica/push web). Completa FIREBASE_* en .env', e);
     }
   } else {
-    await Firebase.initializeApp();
+    // 🔧 v1.6.2: NO fatal en Android. Si Firebase falla por plugin
+    // ausente o google-services.json mal configurado, la app sigue
+    // navegando a Welcome/Login sin notificaciones push.
+    try {
+      await Firebase.initializeApp();
+    } catch (e) {
+      AppLogger.e('Firebase Android no configurado (la app sigue sin '
+          'notificaciones push). Verifica google-services.json y el '
+          'plugin com.google.gms.google-services en build.gradle.kts', e);
+    }
   }
 
   // ── Localización ──
   await initializeDateFormatting('es_ES', null);
 
   // ── Notificaciones en background (solo móvil; en web no aplica) ──
+  // 🔧 v1.6.2: solo registrar si Firebase se inicializó con éxito.
   if (!kIsWeb) {
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    try {
+      FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    } catch (e) {
+      AppLogger.e('FCM onBackgroundMessage falló (no bloqueante)', e);
+    }
   }
 
   // ── SharedPreferences ──
@@ -289,15 +315,19 @@ class _MyAppState extends State<MyApp> {
   Future<void> _initFCM() async {
     if (_fcmInitialized) return;
 
+    // 🔧 v1.6.2: FCM solo en móvil Y solo si Firebase se inicializó OK.
+    // En web, FCM requiere VAPID; en Android sin Firebase no tiene sentido.
+    if (kIsWeb) {
+      _fcmInitialized = true;
+      return;
+    }
+
     try {
       final messaging = FirebaseMessaging.instance;
       final settings = await messaging.requestPermission();
       AppLogger.i('FCM permisos: ${settings.authorizationStatus}');
 
-      // 🔧 FCM FIX: antes esto solo logueaba el token y nunca se enviaba.
-      // Ahora: (1) registramos listener de rotación, (2) sincronizamos el
-      // token actual (si ya hay JWT, funciona; si no, se omite y se
-      // reintentará tras el login).
+      // 🔧 FCM FIX: (1) listener de rotación, (2) sync del token actual.
       FcmService.registerTokenRefreshListener();
       await FcmService.syncTokenWithBackend();
 
@@ -323,7 +353,8 @@ class _MyAppState extends State<MyApp> {
 
       _fcmInitialized = true;
     } catch (e) {
-      AppLogger.e('Error inicializando FCM', e);
+      // 🔧 v1.6.2: no bloquear el arranque si FCM falla.
+      AppLogger.e('FCM no inicializó (la app sigue sin notificaciones push)', e);
     }
   }
 
@@ -334,7 +365,10 @@ class _MyAppState extends State<MyApp> {
 
     if (title.isEmpty) return;
 
-    final scaffoldMessenger = ScaffoldMessenger.of(_router.routerDelegate.navigatorKey.currentContext!);
+    final ctx = _router.routerDelegate.navigatorKey.currentContext;
+    if (ctx == null) return;
+
+    final scaffoldMessenger = ScaffoldMessenger.of(ctx);
     scaffoldMessenger.showSnackBar(
       SnackBar(
         content: Column(
@@ -400,9 +434,10 @@ class _MyAppState extends State<MyApp> {
       themeMode: themeProvider.themeMode,
       debugShowCheckedModeBanner: false,
       routerConfig: _router,
-      // ✅ v1.6.0 WEB: en pantallas anchas (desktop), enmarcar la app
-      // en una columna tipo móvil centrada — conserva el diseño móvil
-      // sin desbordes ni estiramientos raros.
+      // ✅ v1.6.1 WEB: shell adaptativo (≤700px móvil natural / 700–1100px
+      // marco tipo teléfono de 620px / >1100px escritorio con fondo
+      // elegante). El rail lateral de escritorio lo aporta GlobalScaffold
+      // (WebDesktopRail) — ver widgets/web_desktop_shell.dart.
       builder: (context, child) => _webFrame(context, child),
     );
 
@@ -423,43 +458,90 @@ class _MyAppState extends State<MyApp> {
     return app;
   }
 
-  /// ✅ v1.6.0 WEB: marco centrado tipo móvil para pantallas anchas.
+  /// ✅ v1.6.1 WEB: shell adaptativo para la app en el navegador.
   ///
-  /// - En móvil / tablet / ventanas estrechas: sin cambios (child tal cual).
-  /// - En web con ancho > 720px: columna de 480px centrada sobre un fondo
-  ///   oscuro, con MediaQuery ajustado para que los layouts internos se
-  ///   comporten exactamente como en un teléfono.
+  /// - Móvil / ventanas estrechas (≤700px): sin cambios (child tal cual,
+  ///   MediaQuery real — comportamiento natural).
+  /// - Web 700–1100px: marco tipo teléfono de 620px de ancho y alto
+  ///   completo, sin radios verticales (pegado arriba/abajo como app),
+  ///   con sombra suave, sobre un fondo degradado oscuro elegante
+  ///   (#0B1220 → #16233F) con un glow radial azul sutil. El MediaQuery
+  ///   se ajusta al ancho del marco (como hacía el marco de 480px) para
+  ///   que los layouts internos se comporten exactamente como en un
+  ///   teléfono (bottom nav incluido).
+  /// - Web >1100px: SHELL DE ESCRITORIO REAL — fondo de escritorio
+  ///   elegante según modo (dark: #0A0F1E → #111827; light: #EEF2F9 →
+  ///   #DCE5F3) + watermark del logo al 4% abajo-derecha. El contenido
+  ///   pasa con el MediaQuery REAL (sin size falso); la barra lateral
+  ///   (NavigationRail de 200px) y el ancho máximo de 880px los aporta
+  ///   GlobalScaffold sobre este fondo.
   Widget _webFrame(BuildContext context, Widget? child) {
     if (child == null) return const SizedBox.shrink();
     if (!kIsWeb) return child;
 
     final mq = MediaQuery.of(context);
-    if (mq.size.width <= 720) return child;
+    final windowWidth = mq.size.width;
+    if (windowWidth <= 700) return child;
 
-    const frameWidth = 480.0;
-    final isDark = mq.platformBrightness == Brightness.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Container(
-      color: const Color(0xFF0B1220),
-      child: Center(
-        child: Container(
-          width: frameWidth,
-          height: double.infinity,
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF111827) : const Color(0xFFF4F6FA),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.35),
-                blurRadius: 48,
-                spreadRadius: 12,
-              ),
-            ],
-          ),
-          child: MediaQuery(
-            data: mq.copyWith(size: Size(frameWidth, mq.size.height)),
-            child: child,
-          ),
+    // ── Escritorio real (>1100px): fondo elegante + contenido a ancho
+    //    real (MediaQuery sin tocar). El rail lo pone GlobalScaffold. ──
+    if (windowWidth > kWebDesktopBreakpoint) {
+      return WebDesktopBackground(isDark: isDark, child: child);
+    }
+
+    // ── Marco tipo teléfono (700 < ancho ≤ 1100px) ──
+    const frameWidth = 620.0;
+
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF0B1220), Color(0xFF16233F)],
         ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Glow radial azul sutil sobre el degradado oscuro.
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: const Alignment(0.0, -0.2),
+                radius: 1.2,
+                colors: [
+                  AppColors.primaryLight.withOpacity(0.20),
+                  AppColors.primaryLight.withOpacity(0.0),
+                ],
+              ),
+            ),
+          ),
+          Center(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+              width: frameWidth,
+              height: double.infinity,
+              decoration: BoxDecoration(
+                color:
+                    isDark ? const Color(0xFF111827) : const Color(0xFFF4F6FA),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.35),
+                    blurRadius: 48,
+                    spreadRadius: 12,
+                  ),
+                ],
+              ),
+              child: MediaQuery(
+                data: mq.copyWith(size: Size(frameWidth, mq.size.height)),
+                child: child,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

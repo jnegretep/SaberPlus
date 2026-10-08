@@ -1,11 +1,9 @@
 <?php
-// ⚠️ Credenciales leídas de variables de entorno (backend/.env). Ver .env.example
-require_once __DIR__ . '/../env.php';
 
-$host = env('DB_HOST', 'localhost');
-$dbname = env('DB_NAME', 'prepsaber');
-$username = env_required('DB_USER');
-$password = env_required('DB_PASS');
+$host = "localhost";
+$dbname = "prepsaber";
+$username = "jnegretep";
+$password = "Jnegretep1";
 
 try {
     $conexion = new PDO(
@@ -19,7 +17,7 @@ try {
         ]
     );
 
-    // ?? Ajustes adicionales para asegurar codificación y zona horaria
+    // ?? Ajustes adicionales para asegurar codificaci�n y zona horaria
     $conexion->exec("SET NAMES utf8mb4");
     $conexion->exec("SET time_zone = '+00:00'");
     mb_internal_encoding("UTF-8");

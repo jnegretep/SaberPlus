@@ -4,23 +4,55 @@
 // ⚠️ NUNCA usar directamente — solo a través de io_shim.dart.
 //
 // En web estas clases existen solo para satisfacer el compilador.
-// Todos los métodos son no-op o devuelven valores vacíos/falsos.
-// Los flujos reales de web NO dependen de estas clases (están
-// protegidos con kIsWeb en los servicios correspondientes).
+// Los métodos que no tienen equivalente web son no-op o devuelven
+// valores vacíos/falsos. Los flujos reales de web están protegidos
+// con kIsWeb en los servicios correspondientes (descargas, FCM, etc.).
+//
+// EXCEPCIÓN v1.6.1 — lectura de imágenes seleccionadas: cuando el File
+// se construye desde el XFile de image_picker (vía File.fromXFile o
+// fileFromXFile del platform_bridge), readAsBytes() lee los bytes
+// REALES del blob: URL, lo que permite mostrar y subir el avatar en
+// web igual que en móvil.
 
 import 'dart:async';
+
+import 'package:cross_file/cross_file.dart' as xfile;
 
 /// Stub de [dart:io.File] — ver io_shim.dart.
 class File {
   final String path;
-  File(this.path);
 
-  bool existsSync() => false;
-  Future<bool> exists() async => false;
+  /// Referencia al XFile real de image_picker (solo web).
+  /// Permite leer los bytes del blob: URL cuando la app los necesite
+  /// (subida de avatar en base64, etc.).
+  final xfile.XFile? _picked;
 
-  /// En web devuelve vacío: la subida de imágenes desde galería
-  /// no está soportada en web v1 (usar avatares predefinidos).
-  Future<List<int>> readAsBytes() async => <int>[];
+  File(this.path, [xfile.XFile? picked]) : _picked = picked;
+
+  /// Construye un File web a partir del XFile devuelto por image_picker.
+  ///
+  /// Usar preferiblemente `fileFromXFile()` de platform_bridge.dart,
+  /// que funciona igual en móvil y en web.
+  factory File.fromXFile(xfile.XFile picked) => File(picked.path, picked);
+
+  bool existsSync() => _picked != null;
+
+  Future<bool> exists() async => _picked != null;
+
+  /// Lee los bytes reales del archivo cuando proviene de image_picker
+  /// (en web, XFile.readAsBytes resuelve el blob: URL vía XHR).
+  /// Si no hay origen legible (rutas sintéticas de otros servicios)
+  /// devuelve una lista vacía, igual que en versiones anteriores.
+  Future<List<int>> readAsBytes() async {
+    final picked = _picked;
+    if (picked == null) return const <int>[];
+    try {
+      return await picked.readAsBytes();
+    } catch (_) {
+      // blob: URL revocado o ilegible → degradar a vacío, nunca lanzar.
+      return const <int>[];
+    }
+  }
 
   IOSink openWrite() => IOSink();
 

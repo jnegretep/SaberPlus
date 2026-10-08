@@ -12,6 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 // Capturar el body crudo una sola vez
 $rawBody = file_get_contents("php://input");
+error_log("[register_fcm_token][RAW BODY] " . $rawBody);
 
 require __DIR__ . '/includes/conexion.php';
 require __DIR__ . '/auth_middleware.php'; // valida JWT pero no debe consumir php://input
@@ -19,19 +20,21 @@ require __DIR__ . '/auth_middleware.php'; // valida JWT pero no debe consumir ph
 try {
     // Usar el body capturado
     $data = json_decode($rawBody, true);
+    error_log("[register_fcm_token][DATA DECODED] " . json_encode($data));
 
-    // ⚠️ SEGURIDAD (fix 2026-09): el id de usuario SIEMPRE viene del JWT
-    // autenticado — nunca del body. Antes cualquiera podía sobrescribir el
-    // token FCM de otro usuario (le robaba o le bloqueaba las notificaciones).
-    $id_usuario = $authUser['id_usuario'] ?? null;
+    // Aceptar ambos nombres por robustez
+    $id_usuario = $data['id_usuario'] ?? $data['user_id'] ?? null;
     $fcm_token = $data['fcm_token'] ?? $data['token'] ?? null;
+    
+    error_log("[register_fcm_token][PARSED] id_usuario=" . ($id_usuario ?? 'null') . " fcm_token=" . ($fcm_token ?? 'null'));
 
     if (empty($id_usuario) || empty($fcm_token)) {
         http_response_code(400);
         error_log("[register_fcm_token][ERROR] Datos incompletos recibidos");
         echo json_encode([
             "status" => "error",
-            "msg" => "Datos incompletos"
+            "msg" => "Datos incompletos",
+            "received" => $data
         ]);
         exit;
     }
@@ -41,7 +44,9 @@ try {
         SET fcm_token = :fcm_token 
         WHERE id_usuario = :id_usuario
     ");
-
+    
+    error_log("[register_fcm_token][UPDATE] Ejecutando para user_id=$id_usuario token=$fcm_token");
+    
     $stmt->execute([
         ":fcm_token" => $fcm_token,
         ":id_usuario" => $id_usuario
@@ -69,7 +74,8 @@ try {
     http_response_code(500);
     echo json_encode([
         "status" => "error",
-        "msg" => "Error interno"
+        "msg" => "Error interno",
+        "detail" => $e->getMessage()
     ]);
     exit;
 }

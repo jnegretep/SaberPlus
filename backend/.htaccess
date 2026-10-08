@@ -26,14 +26,16 @@ RewriteRule ^uploads/(.*)$ uploads/$1 [L]
 # No listar directorios
 Options -Indexes
 
-# CORS headers para Flutter Web (v1.6.0)
-# Nota: cada endpoint PHP también envía sus propios headers CORS;
-# esto es una capa extra para archivos estáticos y respaldos.
+# CORS para archivos estáticos (imágenes, fuentes, etc.)
+# Los endpoints PHP ya emiten sus propios headers CORS — esto es
+# solo para assets servidos directamente por Apache.
 <IfModule mod_headers.c>
-    Header always set Access-Control-Allow-Origin "*"
-    Header always set Access-Control-Allow-Methods "GET, POST, OPTIONS"
-    Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Internal-Token"
-    Header always set Access-Control-Max-Age "86400"
+    <FilesMatch "\.(jpg|jpeg|png|gif|webp|svg|ico|woff|woff2|ttf|eot|otf|css|js)$">
+        Header set Access-Control-Allow-Origin "*"
+        Header set Access-Control-Allow-Methods "GET, OPTIONS"
+        Header set Access-Control-Allow-Headers "Content-Type"
+        Header set Access-Control-Max-Age "86400"
+    </FilesMatch>
 </IfModule>
 
 # Responder inmediatamente a las peticiones preflight OPTIONS (v1.6.0)

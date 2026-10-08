@@ -2,6 +2,7 @@
 // Saber+ IA — Premium Chat Screen
 // Animated bubbles, typing dots, quick suggestions, dark mode
 
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -154,6 +155,25 @@ class _ChatScreenState extends State<ChatScreen> {
     return rawBody;
   }
 
+  /// Mapea el {codigo, error} del backend a un mensaje claro para el usuario.
+  /// El backend responde HTTP 200 con exito:false y un `codigo`:
+  /// SIN_SALDO / KEY_INVALIDA / RATE_LIMIT / TIMEOUT / ERROR_IA.
+  String _aiErrorMessage(dynamic data) {
+    final codigo = data['codigo'] as String? ?? '';
+    switch (codigo) {
+      case 'SIN_SALDO':
+      case 'KEY_INVALIDA':
+        return 'El tutor IA está en mantenimiento. Ya avisamos al equipo 🛠️';
+      case 'RATE_LIMIT':
+        return 'Vas muy rápido 😅 espera unos segundos e inténtalo de nuevo.';
+      case 'TIMEOUT':
+        return 'El tutor se quedó pensando demasiado. Inténtalo otra vez.';
+    }
+    final error = data['error'] as String?;
+    if (error != null && error.isNotEmpty) return error;
+    return 'Ups, tuve un problema para pensar. Intenta de nuevo.';
+  }
+
   Future<void> _sendMessage({String? preset}) async {
     final text = preset ?? _textController.text.trim();
     if (text.isEmpty || _isLoading) return;
@@ -169,14 +189,19 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final auth = context.read<AuthService>();
 
-      final response = await http.post(
-        Uri.parse(_apiUrl),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'moodle_id': auth.moodleId,
-          'mensaje': text,
-        }),
-      );
+      final response = await http
+          .post(
+            Uri.parse(_apiUrl),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ${auth.token}',
+            },
+            body: jsonEncode({
+              'moodle_id': auth.moodleId,
+              'mensaje': text,
+            }),
+          )
+          .timeout(const Duration(seconds: 60));
 
       if (response.statusCode == 200) {
         final cleanBody = _cleanJsonResponse(response.body);
@@ -190,15 +215,25 @@ class _ChatScreenState extends State<ChatScreen> {
           setState(() {
             _messages.add({
               'role': 'assistant',
-              'text': 'Ups, tuve un problema para pensar. Intenta de nuevo.'
+              'text': '${_aiErrorMessage(data)}\n(Toca para reintentar)',
+              // Guardamos el mensaje fallido: la burbuja será tap-to-retry
+              'retry': text,
             });
           });
         }
+      } else if (response.statusCode == 401) {
+        setState(() {
+          _messages.add({
+            'role': 'assistant',
+            'text': 'Tu sesión expiró. Cierra sesión y vuelve a entrar.',
+          });
+        });
       } else {
         setState(() {
           _messages.add({
             'role': 'assistant',
-            'text': 'Error de conexión. Revisa tu internet.'
+            'text': 'Error de conexión. Revisa tu internet.\n(Toca para reintentar)',
+            'retry': text,
           });
         });
       }
@@ -207,7 +242,10 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() {
         _messages.add({
           'role': 'assistant',
-          'text': 'Error de conexión. Revisa tu internet.'
+          'text': e is TimeoutException
+              ? 'El tutor se quedó pensando demasiado. Inténtalo otra vez.\n(Toca para reintentar)'
+              : 'Error de conexión. Revisa tu internet.\n(Toca para reintentar)',
+          'retry': text,
         });
       });
     } finally {
@@ -301,8 +339,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
                 final msg = _messages[index];
                 final isUser = msg['role'] == 'user';
+                // Burbuja de error tap-to-retry: si trae 'retry', al tocarla
+                // se reenvía el último mensaje del usuario.
+                final retryText = msg['retry'];
 
-                return _ChatBubble(
+                final bubble = _ChatBubble(
                   key: ValueKey('msg_$index'),
                   isUser: isUser,
                   child: isUser
@@ -312,6 +353,14 @@ class _ChatScreenState extends State<ChatScreen> {
                       : _buildMessageContent(msg['text']!),
                   assistantColor: assistantBubbleColor,
                 );
+
+                if (!isUser && retryText != null && retryText.isNotEmpty) {
+                  return GestureDetector(
+                    onTap: () => _sendMessage(preset: retryText),
+                    child: bubble,
+                  );
+                }
+                return bubble;
               },
             ),
           ),

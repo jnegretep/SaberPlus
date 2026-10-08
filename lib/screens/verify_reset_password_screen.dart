@@ -694,7 +694,7 @@ class _VerifyResetPasswordScreenState extends State<VerifyResetPasswordScreen> {
 
               // Footer
               Text(
-                'PrepSaber © 2024',
+                'SaberPlus © 2026',
                 style: TextStyle(
                   color: AppColors.textDisabled,
                   fontSize: 11,

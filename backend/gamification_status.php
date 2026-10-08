@@ -24,7 +24,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/vendor/autoload.php';
 require __DIR__ . '/includes/conexion.php';
-require __DIR__ . '/auth_middleware.php';
+
 
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
@@ -38,6 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit;
 }
+
+require __DIR__ . '/auth_middleware.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);

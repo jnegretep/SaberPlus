@@ -31,6 +31,7 @@ import '../screens/set_password_screen.dart';
 import '../screens/perfil_screen.dart';
 import '../screens/upgrade_screen.dart';
 import '../screens/acerca_screen.dart';
+import '../screens/soporte_screen.dart';
 import '../screens/privacidad_screen.dart';
 import '../screens/perfil_hub_screen.dart';
 import '../screens/stats_home_screen.dart';
@@ -367,6 +368,10 @@ GoRouter buildAppRouter({
       GoRoute(
         path: '/privacidad',
         builder: (context, state) => const PrivacidadScreen(),
+      ),
+      GoRoute(
+        path: '/soporte',
+        builder: (context, state) => const SoporteScreen(),
       ),
 
       // ── Invitaciones ──

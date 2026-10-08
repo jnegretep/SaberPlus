@@ -267,12 +267,21 @@ class _XpRankingScreenState extends State<XpRankingScreen>
         return;
       }
       final gamif = context.read<GamificationProvider>();
-      await ShareService.shareRankingPosition(
-        posicion: data.userPosition,
-        total: data.totalUsers,
-        xp: gamif.state.totalXp,
-        tipo: 'estudiantes',
-      );
+      // ❌ Antes
+await ShareService.shareRankingPosition(
+  posicion: data.userPosition,
+  total: data.totalUsers,
+  xp: gamif.totalXp,      // ← 'GamificationState' no tiene totalXp
+  tipo: 'estudiantes',
+);
+
+// ✅ Ahora
+await ShareService.shareRankingPosition(
+  posicion: data.userPosition,
+  total: data.totalUsers,
+  xp: gamif.totalXp,            // ← el provider sí lo expone (igual que en _buildUserCard)
+  tipo: 'estudiantes',
+);
     } else {
       final data = _instRankingData;
       final mia = data?.miInstitucion;

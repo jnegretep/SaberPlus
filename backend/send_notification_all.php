@@ -1,23 +1,7 @@
+
 <?php
-/**
- * send_notification_all.php â€” NotificaciÃ³n push masiva
- * âš ï¸ SEGURIDAD (fix 2026-09): antes era PÃšBLICA (cualquiera en Internet podÃ­a
- * enviar phishing a toda la base de usuarios). Ahora exige la cabecera
- * X-Internal-Token con el valor de INTERNAL_TOKEN (backend/.env).
- */
 require __DIR__ . '/vendor/autoload.php';
-require __DIR__ . '/includes/conexion.php'; // ? conexiÃ³n correcta
-require __DIR__ . '/env.php';
-
-// â”€â”€ Guard de acceso interno (solo servidor / cron / panel) â”€â”€
-$internalToken = env('INTERNAL_TOKEN', '');
-$headerToken   = $_SERVER['HTTP_X_INTERNAL_TOKEN'] ?? '';
-
-if ($internalToken === '' || !hash_equals($internalToken, (string)$headerToken)) {
-    http_response_code(403);
-    echo json_encode(["success" => false, "message" => "No autorizado"], JSON_UNESCAPED_UNICODE);
-    exit;
-}
+require __DIR__ . '/includes/conexion.php'; // ? conexión correcta
 
 use Kreait\Firebase\Factory;
 use Kreait\Firebase\Messaging\CloudMessage;
@@ -28,7 +12,7 @@ mb_internal_encoding("UTF-8");
 ini_set('default_charset', 'UTF-8');
 header("Content-Type: application/json; charset=UTF-8");
 
-// ?? Forzar conexiÃ³n a UTF-8 en cada request
+// ?? Forzar conexión a UTF-8 en cada request
 $conexion->exec("SET NAMES utf8mb4");
 $conexion->exec("SET CHARACTER SET utf8mb4");
 $conexion->exec("SET COLLATION_CONNECTION = utf8mb4_unicode_ci");
@@ -41,7 +25,7 @@ $messaging = $factory->createMessaging();
 $rawBody = file_get_contents("php://input");
 $data = json_decode($rawBody, true);
 
-// ?? Convertir todos los strings del JSON a UTF-8 solo si no son vÃ¡lidos
+// ?? Convertir todos los strings del JSON a UTF-8 solo si no son válidos
 if (is_array($data)) {
     array_walk_recursive($data, function (&$item) {
         if (is_string($item) && !mb_check_encoding($item, 'UTF-8')) {
@@ -51,7 +35,7 @@ if (is_array($data)) {
 }
 
 $title = $data['title'] ?? "Aviso general Saber+";
-$body  = $data['body'] ?? "Tienes una nueva actualizaciÃ³n";
+$body  = $data['body'] ?? "Tienes una nueva actualización";
 
 // ?? Convertir los literales del archivo si el archivo estuviera guardado en latin1
 if (!mb_check_encoding($title, 'UTF-8')) {
@@ -61,7 +45,11 @@ if (!mb_check_encoding($body, 'UTF-8')) {
     $body = mb_convert_encoding($body, 'UTF-8', 'Windows-1252, ISO-8859-1');
 }
 
-// Consultar todos los tokens
+// ?? Logs de depuración (incluye bytes hex para ver codificación)
+error_log("[send_notification_all][DEBUG] title=".$title." body=".$body);
+error_log("[send_notification_all][HEX] title=".bin2hex($title)." body=".bin2hex($body));
+
+// ?? Consultar todos los tokens
 $stmt = $conexion->query("SELECT id_usuario, fcm_token FROM usuarios WHERE fcm_token IS NOT NULL");
 $usuarios = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -87,8 +75,12 @@ try {
     ");
 
     foreach ($usuarios as $u) {
-        // payload vacÃ­o (pero conservando codificaciÃ³n)
+        // payload vacío (pero conservando codificación)
         $payload = json_encode([], JSON_UNESCAPED_UNICODE);
+        error_log("[send_notification_all][PAYLOAD] user_id={$u['id_usuario']} ".$payload);
+
+        // ?? Log de depuración antes de insertar
+        error_log("[send_notification_all][DEBUG INSERT] user_id={$u['id_usuario']} title=".$title." body=".$body);
 
         $stmtInsert->execute([
             ":user_id" => $u['id_usuario'],
@@ -108,5 +100,5 @@ try {
 } catch (\Throwable $e) {
     error_log("[send_notification_all][ERROR] ".$e->getMessage());
     http_response_code(500);
-    echo json_encode(["success" => false, "error" => "Error interno al enviar las notificaciones"], JSON_UNESCAPED_UNICODE);
+    echo json_encode(["success" => false, "error" => $e->getMessage()], JSON_UNESCAPED_UNICODE);
 }

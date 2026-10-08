@@ -10,7 +10,7 @@
 // - Manejo de errores mejorado con botón reintentar
 // - Placeholder con thumbnail/poster mientras carga
 
-import '../../core/io_shim/io_shim.dart'; // v1.6.0: dart:io con stub para web
+import '../../core/io_shim/platform_bridge.dart'; // v1.6.1: puente multiplataforma (File/video)
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -133,8 +133,13 @@ class _PremiumVideoPlayerState extends State<PremiumVideoPlayer>
       _chewie?.dispose();
       _controller?.dispose();
 
+      // v1.6.1: puente multiplataforma — en móvil es el
+      // VideoPlayerController.file original; en web las descargas están
+      // deshabilitadas (isLocal siempre es false), por lo que nunca se
+      // invoca la rama web (y si ocurriera, caería en el manejo de
+      // errores de abajo con el botón "Reintentar", sin crash).
       _controller = isLocal
-          ? VideoPlayerController.file(File(source))
+          ? localVideoController(source)
           : VideoPlayerController.networkUrl(Uri.parse(source));
 
       await _controller!.initialize();

@@ -1,23 +1,12 @@
+
 <?php
 // /var/www/html/api/prepsaber/backend/cron_retos.php (con logs detallados)
 require __DIR__ . '/includes/conexion.php';
 require __DIR__ . '/vendor/autoload.php';
 
-// ── Guard de acceso: CLI permitido (cron del servidor), HTTP exige X-Internal-Token ──
-require_once __DIR__ . '/env.php';
-if (PHP_SAPI !== 'cli') {
-    $internalToken = env('INTERNAL_TOKEN', '');
-    $headerToken   = $_SERVER['HTTP_X_INTERNAL_TOKEN'] ?? '';
-    if ($internalToken === '' || !hash_equals($internalToken, (string)$headerToken)) {
-        http_response_code(403);
-        header('Content-Type: application/json; charset=UTF-8');
-        exit(json_encode(['status' => 'error', 'msg' => 'No autorizado']));
-    }
-}
-
 use Kreait\Firebase\Factory;
 
-// Forzar sesión MySQL en UTC y utf8mb4
+// Forzar sesi�n MySQL en UTC y utf8mb4
 try {
     $conexion->exec("SET time_zone = '+00:00'");
     $conexion->exec("SET NAMES utf8mb4");
@@ -38,7 +27,7 @@ if (file_exists($lockFile)) {
 }
 $fp = fopen($lockFile, 'c');
 if (!flock($fp, LOCK_EX | LOCK_NB)) {
-    error_log("[cron_retos][LOCK] otra instancia en ejecución, saliendo");
+    error_log("[cron_retos][LOCK] otra instancia en ejecuci�n, saliendo");
     exit;
 }
 error_log("[cron_retos] start pid=" . getmypid());

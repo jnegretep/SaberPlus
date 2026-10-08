@@ -29,18 +29,6 @@ require __DIR__ . '/vendor/autoload.php';
 require __DIR__ . '/includes/conexion.php';
 require __DIR__ . '/includes/config.php';
 
-// ── Guard de acceso: CLI permitido (cron del servidor), HTTP exige X-Internal-Token ──
-require_once __DIR__ . '/env.php';
-if (PHP_SAPI !== 'cli') {
-    $internalToken = env('INTERNAL_TOKEN', '');
-    $headerToken   = $_SERVER['HTTP_X_INTERNAL_TOKEN'] ?? '';
-    if ($internalToken === '' || !hash_equals($internalToken, (string)$headerToken)) {
-        http_response_code(403);
-        header('Content-Type: application/json; charset=UTF-8');
-        exit(json_encode(['status' => 'error', 'msg' => 'No autorizado']));
-    }
-}
-
 use Kreait\Firebase\Factory;
 use Kreait\Firebase\Messaging\CloudMessage;
 use Kreait\Firebase\Messaging\Notification;

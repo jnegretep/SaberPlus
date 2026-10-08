@@ -29,8 +29,6 @@ declare(strict_types=1);
 
 require __DIR__ . '/vendor/autoload.php';
 require __DIR__ . '/includes/conexion.php';
-require __DIR__ . '/auth_middleware.php';
-require __DIR__ . '/includes/analytics.php';
 
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
@@ -41,6 +39,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit;
 }
+
+require __DIR__ . '/auth_middleware.php';
+require __DIR__ . '/includes/analytics.php';
+
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);

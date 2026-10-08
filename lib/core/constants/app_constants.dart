@@ -7,7 +7,18 @@ class AppConstants {
   // ── App ──
   static const String appName = 'Saber+';
   static const String appTagline = 'Preparación ICFES Saber 11';
-  static const String appVersion = '1.5.0';
+  static const String appVersion = '1.7.0';
+
+  // ── Redes y contacto ──
+  // ⚠️ Handles provisionales: el dueño debe ajustar los handles reales
+  // cuando cree oficialmente las cuentas (Instagram/TikTok/Facebook).
+  static const String webUrl = 'https://saberplus.app';
+  static const String supportEmail = 'soporte@saberplus.app';
+  static const String supportPhone = '+57 315 279 1015';
+  static const String whatsappUrl = 'https://wa.me/573152791015';
+  static const String instagramUrl = 'https://www.instagram.com/saberplus.co';
+  static const String tiktokUrl = 'https://www.tiktok.com/@saberplus.co';
+  static const String facebookUrl = 'https://www.facebook.com/saberplus.co';
 
   // ── Storage Keys ──
   static const String keyJwt = 'jwt';

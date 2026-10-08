@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../core/constants/app_constants.dart';
 import '../widgets/profile_avatar_widget.dart';
 import '../core/io_shim/io_shim.dart'; // v1.6.0: dart:io con stub para web
+import '../core/io_shim/platform_bridge.dart'; // v1.6.1: File/Image multiplataforma
 import '../config/navigation.dart';
 import '../core/theme/app_colors.dart';
 
@@ -437,8 +438,9 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
                       ),
                       child: ClipOval(
                         child: widget.selectedImage != null
-                            ? Image.file(
-                                widget.selectedImage!,
+                            ? Image(
+                                // v1.6.1: FileImage en móvil, NetworkImage en web.
+                                image: fileImageProvider(widget.selectedImage!),
                                 width: 60,
                                 height: 60,
                                 fit: BoxFit.cover,
@@ -773,7 +775,7 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'PrepSaber © 2024',
+                    'SaberPlus © 2026',
                     style: TextStyle(
                       color: AppColors.textDisabled,
                       fontSize: 12,

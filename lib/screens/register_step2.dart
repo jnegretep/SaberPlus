@@ -2,6 +2,7 @@
 import '../config/env.dart';
 import 'dart:convert';
 import '../core/io_shim/io_shim.dart'; // v1.6.0: dart:io con stub para web
+import '../core/io_shim/platform_bridge.dart'; // v1.6.1: File/Image multiplataforma
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'verify_email_screen.dart';
@@ -209,6 +210,28 @@ class _RegisterStep2State extends State<RegisterStep2> {
     try {
       if (widget.selectedImage != null) {
         final bytes = await widget.selectedImage!.readAsBytes();
+
+        // v1.6.1: en móvil image_picker comprime (imageQuality: 70), pero en
+        // web NO comprime — una foto de galería puede pesar varios MB y el
+        // base64 (+33%) exceder los límites del servidor. Se registra sin
+        // foto y se avisa al usuario en vez de fallar con error del servidor.
+        if (bytes.length > 4 * 1024 * 1024) {
+          debugPrint(
+              '⚠️ Avatar demasiado grande: ${bytes.length} bytes — se omite');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'La foto es muy grande (${(bytes.length / 1024 / 1024).toStringAsFixed(1)} MB). '
+                  'Elige una más ligera o usa un avatar prediseñado.',
+                ),
+                backgroundColor: AppColors.error,
+              ),
+            );
+          }
+          return null;
+        }
+
         return base64Encode(bytes);
       } else if (widget.selectedAvatarAsset != null) {
         final bytes = await DefaultAssetBundle.of(context)
@@ -630,8 +653,9 @@ class _RegisterStep2State extends State<RegisterStep2> {
                 ),
                 child: ClipOval(
                   child: widget.selectedImage != null
-                      ? Image.file(
-                          widget.selectedImage!,
+                      ? Image(
+                          // v1.6.1: FileImage en móvil, NetworkImage en web.
+                          image: fileImageProvider(widget.selectedImage!),
                           width: 100,
                           height: 100,
                           fit: BoxFit.cover,
@@ -855,7 +879,7 @@ class _RegisterStep2State extends State<RegisterStep2> {
               const SizedBox(height: 40),
               // Footer
               Text(
-                'Paso 2 de 3 • PrepSaber © 2024',
+                'Paso 2 de 3 • SaberPlus © 2026',
                 style: TextStyle(
                   color: AppColors.textDisabled,
                   fontSize: 12,

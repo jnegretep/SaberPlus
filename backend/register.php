@@ -27,7 +27,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 require __DIR__ . '/includes/conexion.php';
 require __DIR__ . '/includes/config.php';
 require __DIR__ . '/vendor/autoload.php';
-require __DIR__ . '/env.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception as PHPMailerException;
@@ -71,9 +70,7 @@ try {
     $ciudad        = isset($data['ciudad']) ? trim((string)$data['ciudad']) : null;
     $colegio       = isset($data['colegio']) ? trim((string)$data['colegio']) : null;
     $grado         = isset($data['grado']) ? trim((string)$data['grado']) : null;
-    // ⚠️ SEGURIDAD: el rol NUNCA se acepta del cliente en el registro público.
-    // Los profesores se provisionan por vías administrativas (BD / panel), no por la app.
-    $tipo_usuario  = 'estudiante';
+    $tipo_usuario  = isset($data['tipo_usuario']) ? trim((string)$data['tipo_usuario']) : 'estudiante';
     $username      = isset($data['username']) ? trim((string)$data['username']) : null;
     $avatarBase64  = isset($data['avatar']) ? trim((string)$data['avatar']) : null;
 
@@ -153,15 +150,15 @@ try {
 
         try {
             $mail->isSMTP();
-            $mail->Host       = env('SMTP_HOST', 'smtp.gmail.com');
+            $mail->Host       = 'smtp.gmail.com';
             $mail->SMTPAuth   = true;
-            $mail->Username   = env_required('SMTP_USER');
-            $mail->Password   = env_required('SMTP_PASSWORD');
+            $mail->Username   = 'jnegretep24@gmail.com';
+            $mail->Password   = 'rwretxvadnprnrzl';
             $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-            $mail->Port       = (int)env('SMTP_PORT', '587');
+            $mail->Port       = 587;
             $mail->CharSet    = 'UTF-8';
 
-            $mail->setFrom(env('SMTP_FROM', env_required('SMTP_USER')), env('SMTP_FROM_NAME', 'Saber+'));
+            $mail->setFrom('jnegretep24@gmail.com', 'Saber+');
             $mail->addAddress($email, $nombre);
 
             $mail->isHTML(true);
@@ -252,15 +249,15 @@ try {
 
     try {
         $mail->isSMTP();
-        $mail->Host       = env('SMTP_HOST', 'smtp.gmail.com');
+        $mail->Host       = 'smtp.gmail.com';
         $mail->SMTPAuth   = true;
-        $mail->Username   = env_required('SMTP_USER');
-        $mail->Password   = env_required('SMTP_PASSWORD');
+        $mail->Username   = 'jnegretep24@gmail.com';
+        $mail->Password   = 'rwretxvadnprnrzl';
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-        $mail->Port       = (int)env('SMTP_PORT', '587');
+        $mail->Port       = 587;
         $mail->CharSet    = 'UTF-8';
 
-        $mail->setFrom(env('SMTP_FROM', env_required('SMTP_USER')), env('SMTP_FROM_NAME', 'Saber+'));
+        $mail->setFrom('jnegretep24@gmail.com', 'Saber+');
         $mail->addAddress($email, $nombre);
 
         $mail->isHTML(true);

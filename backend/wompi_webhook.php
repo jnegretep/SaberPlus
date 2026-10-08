@@ -25,13 +25,13 @@ $raw = file_get_contents('php://input');
 $data = json_decode($raw, true);
 
 if (!$data || !isset($data['event']) || !isset($data['signature'])) {
-    logWebhook('Payload inválido');
+    logWebhook('Payload inv�lido');
     http_response_code(400);
     exit;
 }
 
 /* =======================
-   VERIFICAR FIRMA (Mantenemos tu lógica que ya funciona)
+   VERIFICAR FIRMA (Mantenemos tu l�gica que ya funciona)
    ======================= */
 $receivedChecksum = $data['signature']['checksum'] ?? '';
 $timestamp = (string)($data['timestamp'] ?? '');
@@ -41,7 +41,7 @@ $stringToHash = $tx['id'] . $tx['status'] . $tx['amount_in_cents'] . $timestamp 
 $expectedChecksum = hash('sha256', $stringToHash);
 
 if (!hash_equals($expectedChecksum, $receivedChecksum)) {
-    logWebhook("Firma inválida.");
+    logWebhook("Firma inv�lida.");
     http_response_code(401);
     exit;
 }
@@ -74,25 +74,6 @@ if (in_array(strtolower($payment['status']), ['approved', 'declined'], true)) {
 }
 
 /* =======================
-   ⚠️ VERIFICACIÓN DE MONTO Y MONEDA (fix crítico 2026-09)
-   Antes: el webhook activaba premium sin comparar el monto pagado contra
-   el pago registrado → con el integrity secret filtrado se podía pagar
-   100 COP por una referencia válida y obtener premium.
-   Ahora: monto y moneda del evento DEBEN coincidir exactamente con el
-   registro en `payments` (amount está en pesos; Wompi envía centavos).
-   ======================= */
-$expectedAmountCents = (int)$payment['amount'] * 100;
-$txAmountCents       = (int)($tx['amount_in_cents'] ?? 0);
-$txCurrency          = strtoupper((string)($tx['currency'] ?? ''));
-$expectedCurrency    = strtoupper((string)$payment['currency']);
-
-if ($txAmountCents !== $expectedAmountCents || ($expectedCurrency !== '' && $txCurrency !== $expectedCurrency)) {
-    logWebhook("MONTO/MONEDA NO COINCIDEN: esperado {$expectedAmountCents} {$expectedCurrency}, recibido {$txAmountCents} {$txCurrency} (ref: {$reference})");
-    http_response_code(400);
-    exit(json_encode(['status' => 'error', 'msg' => 'Monto o moneda no válidos']));
-}
-
-/* =======================
    ACTUALIZAR ESTADO DEL PAGO
    ======================= */
 $stmt = $conexion->prepare("
@@ -107,12 +88,12 @@ $stmt->execute([
 ]);
 
 /* =======================
-   ACTIVACIÓN PREMIUM (Según tu tabla 'usuarios')
+   ACTIVACI�N PREMIUM (Seg�n tu tabla 'usuarios')
    ======================= */
 if ($status === 'APPROVED') {
     $userId = $payment['user_id'];
 
-    // Actualizar tabla Usuarios basándonos en tus columnas: access_level y unlocked_at
+    // Actualizar tabla Usuarios bas�ndonos en tus columnas: access_level y unlocked_at
     $stmt = $conexion->prepare("
         UPDATE usuarios
         SET access_level = 'premium', 
@@ -121,7 +102,7 @@ if ($status === 'APPROVED') {
     ");
     $stmt->execute([':user_id' => $userId]);
 
-    logWebhook("¡Usuario $userId activado como PREMIUM!");
+    logWebhook("�Usuario $userId activado como PREMIUM!");
 }
 
 echo json_encode(['status' => 'ok']);

@@ -1,4 +1,5 @@
 import '../core/io_shim/io_shim.dart'; // v1.6.0: dart:io con stub para web
+import '../core/io_shim/platform_bridge.dart'; // v1.6.1: File/Image multiplataforma
 import 'package:flutter/material.dart';
 import '../core/theme/app_colors.dart';
 
@@ -23,7 +24,7 @@ class ProfileAvatarWidget extends StatelessWidget {
           radius: 45,
           backgroundColor: AppColors.stepInactive,
           backgroundImage: selectedImage != null
-              ? FileImage(selectedImage!)
+              ? fileImageProvider(selectedImage!) // v1.6.1: FileImage en móvil, NetworkImage en web
               : (selectedAvatarAsset != null
                   ? AssetImage(selectedAvatarAsset!)
                   : null) as ImageProvider<Object>?,

@@ -534,7 +534,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
               // Footer
               Text(
-                'PrepSaber © 2024',
+                'SaberPlus © 2026',
                 style: TextStyle(
                   color: AppColors.textDisabled,
                   fontSize: 11,

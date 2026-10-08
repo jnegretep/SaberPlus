@@ -1,12 +1,16 @@
 // lib/widgets/global_scaffold.dart
 // Premium Scaffold global with animated bottom nav indicator,
-// dark mode support, and adaptive layout for tablets
+// dark mode support, and adaptive layout for tablets.
+// v1.6.1 WEB: en escritorio (>1100px) usa shell con NavigationRail lateral
+// (widgets/web_desktop_shell.dart) + contenido ancho centrado de 880px.
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../config/navigation.dart';
 import '../core/theme/app_colors.dart';
+import 'web_desktop_shell.dart';
 
 class GlobalScaffold extends StatelessWidget {
   final Widget body;
@@ -27,9 +31,27 @@ class GlobalScaffold extends StatelessWidget {
     final inactiveColor = isDark ? AppColors.darkTextTertiary : AppColors.textDisabled;
     final navBgColor = isDark ? AppColors.darkSurface : AppColors.surface;
 
-    // Check if tablet (width > 600)
     final width = MediaQuery.of(context).size.width;
-    final isTablet = width > 600;
+
+    // ✅ v1.6.1 WEB DESKTOP (>1100px): shell real — NavigationRail lateral de
+    // 200px + contenido centrado de ancho máx 880px sobre el fondo elegante
+    // que pone _webFrame (main.dart). En móvil/tablet nunca entra aquí.
+    if (kIsWeb && width > kWebDesktopBreakpoint) {
+      return _buildWebDesktopScaffold(
+        context,
+        body: body,
+        currentIndex: currentIndex,
+        isTeacher: isTeacher,
+        isDark: isDark,
+        activeColor: activeColor,
+        inactiveColor: inactiveColor,
+      );
+    }
+
+    // Check if tablet (width > 600). En web nunca: las ventanas web ≤1100px
+    // usan el bottom nav tipo móvil (el marco de 620px de _webFrame simula
+    // un teléfono) — guard estricto con kIsWeb para NO tocar móvil/tablet.
+    final isTablet = width > 600 && !kIsWeb;
 
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -42,6 +64,73 @@ class GlobalScaffold extends StatelessWidget {
           : isTeacher
               ? _buildTeacherBottomNav(context, currentIndex, navBgColor, activeColor, inactiveColor)
               : _buildStudentBottomNav(context, currentIndex, navBgColor, activeColor, inactiveColor),
+    );
+  }
+
+  // ── WEB: Shell de escritorio (>1100px) ──
+  //
+  // Scaffold TRANSPARENTE (deja ver el degradado de fondo que pone
+  // _webFrame en main.dart) con:
+  //   - Izquierda: WebDesktopRail (NavigationRail extendida de 200px, logo
+  //     arriba) con los MISMOS destinos/iconos/labels del bottom nav.
+  //   - VerticalDivider de 1px.
+  //   - Derecha: contenido centrado horizontalmente, ancho máx 880px,
+  //     padding horizontal 32 (el child conserva su propio background).
+  //
+  // La navegación (onDestinationSelected) reutiliza EXACTAMENTE los mismos
+  // handlers del bottom nav (_onStudentTap / _onTeacherTap → Nav.go*), con
+  // el mismo guard de "índice actual". El bottom nav no tiene botón de
+  // salir, así que el rail tampoco (logout sigue en Más → Perfil).
+  Widget _buildWebDesktopScaffold(
+    BuildContext context, {
+    required Widget body,
+    required int currentIndex,
+    required bool isTeacher,
+    required bool isDark,
+    required Color activeColor,
+    required Color inactiveColor,
+  }) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
+        bottom: false,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            WebDesktopRail(
+              isTeacher: isTeacher,
+              currentIndex: currentIndex,
+              isDark: isDark,
+              activeColor: activeColor,
+              inactiveColor: inactiveColor,
+              onDestinationSelected: (index) {
+                if (isTeacher) {
+                  _onTeacherTap(context, index, currentIndex);
+                } else {
+                  _onStudentTap(context, index, currentIndex);
+                }
+              },
+            ),
+            VerticalDivider(
+              width: 1,
+              thickness: 1,
+              color: isDark ? AppColors.darkBorder : AppColors.border,
+            ),
+            Expanded(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                      maxWidth: kWebContentMaxWidth),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    child: body,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

@@ -20,6 +20,10 @@
 //   AnalyticsService.recordError(e, stack, reason: 'cargar dashboard');
 
 import 'dart:async';
+// 🔧 FIX #1: PlatformDispatcher vive en dart:ui. Sin este import, el
+// compilador marca "Undefined name 'PlatformDispatcher'".
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:flutter/material.dart';
 
@@ -63,6 +67,9 @@ class AnalyticsService {
         FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
 
         // ── Crashlytics: errores async no capturados ──
+        // 🔧 FIX #1 (cont.): PlatformDispatcher solo existe en mobile/desktop.
+        // En web hay otros mecanismos (window.onerror), pero por ahora lo
+        // omitimos para no complicar. Está protegido por `!kIsWeb`.
         PlatformDispatcher.instance.onError = (error, stack) {
           FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
           _reportErrorToBackend(error.toString(), stack?.toString(), fatal: true);
@@ -89,9 +96,18 @@ class AnalyticsService {
 
   /// Vincula el usuario (id propio) para funnel por usuario.
   /// No se envía email ni PII.
+   /// Vincula el usuario (id propio) para funnel por usuario.
+  /// No se envía email ni PII.
   static Future<void> setUserId(int? userId) async {
+    if (userId == null) return;
     try {
-      await _analytics?.setUserId(userId: userId?.toString());
+      // 🔧 FIX: `setUserId` cambió de firma entre versiones de
+      // firebase_analytics. `setUserProperty` es estable y siempre usa
+      // argumentos nombrados (name:, value:), así que funciona en todas.
+      await _analytics?.setUserProperty(
+        name: 'user_id',
+        value: userId.toString(),
+      );
     } catch (_) {}
   }
 

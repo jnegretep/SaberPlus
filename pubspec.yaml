@@ -1,7 +1,7 @@
 name: saberplus_app
 description: Saber+ — Preparación ICFES Saber 11 | Cursos, Simulacros, Retos y IA
 publish_to: 'none'
-version: 1.6.0+16
+version: 1.7.0+18
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -56,6 +56,7 @@ dependencies:
 
   # ── Multimedia ──
   image_picker: ^1.1.2
+  cross_file: ^0.3.3+2        # XFile de image_picker — usado por el io_shim/web (v1.6.1)
   permission_handler: ^12.0.1
   flutter_downloader: ^1.11.6
 
@@ -71,11 +72,14 @@ dependencies:
   firebase_crashlytics: ^4.0.0  # v1.6.0: reporte de fallos (no-web)
 
   # ── Social (v1.6.0) ──
-  share_plus: ^9.0.0            # compartir resultados en redes
+  share_plus: ^10.1.4           # v1.7.0: API SharePlus.instance/ShareParams (10.x) + compartir logo adjunto
 
   # ── Auth adicional (FIX #4 y #5) ──
   google_sign_in: ^6.2.1
   local_auth: ^2.2.0
+
+  # ── Pagos (v1.7.0) ──
+  in_app_purchase: ^3.2.0   # Google Play Billing (Android); web sigue con Wompi
 
 dev_dependencies:
   flutter_test:

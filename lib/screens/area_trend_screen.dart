@@ -6,9 +6,18 @@ import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../models/area_trend_point.dart';
 import 'dart:math';
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../core/theme/app_colors.dart';
+
+/// Excepción de la IA con mensaje listo para mostrar al usuario.
+class _AiException implements Exception {
+  final String message;
+  const _AiException(this.message);
+  @override
+  String toString() => message;
+}
 
 class AreaTrendScreen extends StatefulWidget {
   final String area;
@@ -47,20 +56,26 @@ class _AreaTrendScreenState extends State<AreaTrendScreen> {
       
       debugPrint('[IA] Enviando análisis para moodle_id: $moodleIdValue');
       
-      final response = await http.post(
-        Uri.parse(Env.aiApiUrl),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'moodle_id': moodleIdValue,
-          'mensaje': 'Analiza mi rendimiento en ${_labelAreaShort(widget.area)} y dame mi plan de acción.',
-          'area_enfoque': widget.area,
-          'area_stats': {
-            'promedio': avg.toStringAsFixed(1),
-            'tendencia': tendencia.toStringAsFixed(1),
-            'mejor': best.toStringAsFixed(1),
-          }
-        }),
-      );
+      final response = await http
+          .post(
+            Uri.parse(Env.aiApiUrl),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ${auth.token}',
+            },
+            body: jsonEncode({
+              'moodle_id': moodleIdValue,
+              'mensaje':
+                  'Analiza mi rendimiento en ${_labelAreaShort(widget.area)} y dame mi plan de acción.',
+              'area_enfoque': widget.area,
+              'area_stats': {
+                'promedio': avg.toStringAsFixed(1),
+                'tendencia': tendencia.toStringAsFixed(1),
+                'mejor': best.toStringAsFixed(1),
+              }
+            }),
+          )
+          .timeout(const Duration(seconds: 60));
 
       debugPrint('[IA] Respuesta código: ${response.statusCode}');
       
@@ -71,21 +86,55 @@ class _AreaTrendScreenState extends State<AreaTrendScreen> {
             _aiRecommendation = data['respuesta'];
           });
         } else {
-          throw Exception(data['mensaje'] ?? 'Error desconocido de la IA');
+          throw _AiException(_aiErrorMessage(data));
         }
+      } else if (response.statusCode == 401) {
+        throw const _AiException(
+            'Tu sesión expiró. Cierra sesión y vuelve a entrar.');
       } else {
-        throw Exception('Error HTTP ${response.statusCode}');
+        throw const _AiException('Error de conexión. Revisa tu internet.');
       }
     } catch (e) {
       debugPrint('[IA] Error: $e');
       if (mounted) {
+        final mensaje = e is _AiException
+            ? e.message
+            : e is TimeoutException
+                ? 'El tutor se quedó pensando demasiado. Inténtalo otra vez.'
+                : 'Error de conexión. Revisa tu internet.';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('⚠️ Error con la IA: ${e.toString()}')),
+          SnackBar(
+            content: Text('⚠️ $mensaje'),
+            duration: const Duration(seconds: 6),
+            action: SnackBarAction(
+              label: 'Reintentar',
+              onPressed: () => _fetchAIAnalysis(points),
+            ),
+          ),
         );
       }
     } finally {
       if (mounted) setState(() => _isLoadingAI = false);
     }
+  }
+
+  /// Mapea el {codigo, error} del backend a un mensaje claro para el usuario.
+  /// El backend responde HTTP 200 con exito:false y un `codigo`:
+  /// SIN_SALDO / KEY_INVALIDA / RATE_LIMIT / TIMEOUT / ERROR_IA.
+  String _aiErrorMessage(dynamic data) {
+    final codigo = data['codigo'] as String? ?? '';
+    switch (codigo) {
+      case 'SIN_SALDO':
+      case 'KEY_INVALIDA':
+        return 'El tutor IA está en mantenimiento. Ya avisamos al equipo 🛠️';
+      case 'RATE_LIMIT':
+        return 'Vas muy rápido 😅 espera unos segundos e inténtalo de nuevo.';
+      case 'TIMEOUT':
+        return 'El tutor se quedó pensando demasiado. Inténtalo otra vez.';
+    }
+    final error = data['error'] as String?;
+    if (error != null && error.isNotEmpty) return error;
+    return 'No pudimos generar el análisis ahora. Intenta de nuevo.';
   }
 
   @override

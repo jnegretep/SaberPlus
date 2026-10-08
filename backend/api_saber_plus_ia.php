@@ -2,18 +2,86 @@
 // api_saber_plus_ia.php — Tutor IA de Saber+ (DeepSeek)
 // ⚠️ SEGURIDAD: requiere JWT del usuario autenticado; el moodle_id se toma
 // del token, nunca del body. La API key vive en backend/.env.
-header('Content-Type: application/json');
+// v2 (Task 3-f): timeouts curl, mapeo claro de errores de DeepSeek (saldo /
+// key inválida / rate-limit / timeout), límite de peticiones por usuario y
+// respuestas SIEMPRE {exito, error, codigo} con HTTP 200 (la app decide el UX).
+header('Content-Type: application/json; charset=UTF-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
+
+require_once __DIR__ . '/vendor/autoload.php';
+require_once __DIR__ . '/includes/conexion.php';
+require_once __DIR__ . '/env.php';
+
+/**
+ * Responde SIEMPRE con HTTP 200 y JSON {exito:false, codigo, error}.
+ * Así la app recibe JSON parseable y mapea `codigo` → mensaje UX correcto
+ * (SIN_SALDO / KEY_INVALIDA / RATE_LIMIT / TIMEOUT / ERROR_IA).
+ */
+function ia_error(string $codigo, string $error): void {
+    http_response_code(200);
+    echo json_encode([
+        'exito'  => false,
+        'codigo' => $codigo,
+        'error'  => $error,
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+/**
+ * Rate-limit por usuario SIN tablas nuevas: /tmp/saberplus_ia_rl_{moodle_id}.json
+ * guarda los timestamps de las últimas peticiones; más de 6 en 60s = bloqueado.
+ * Escritura atómica con flock. Si el filesystem falla, deja pasar (fail-open:
+ * es una protección de UX/saldo, no de seguridad).
+ */
+function ia_rate_limit_excedido(int $moodle_id): bool {
+    $archivo = sys_get_temp_dir() . '/saberplus_ia_rl_' . $moodle_id . '.json';
+    $fp = @fopen($archivo, 'c+');
+    if ($fp === false) {
+        return false;
+    }
+    $ahora = time();
+    $timestamps = [];
+    $permitido = true;
+    try {
+        if (flock($fp, LOCK_EX)) {
+            $raw = stream_get_contents($fp);
+            if (is_string($raw) && $raw !== '') {
+                $dec = json_decode($raw, true);
+                if (is_array($dec)) {
+                    foreach ($dec as $t) {
+                        // Conservar solo las peticiones de los últimos 60s
+                        if (is_numeric($t) && ($ahora - (int)$t) < 60) {
+                            $timestamps[] = (int)$t;
+                        }
+                    }
+                }
+            }
+            $permitido = count($timestamps) < 6;
+            if ($permitido) {
+                $timestamps[] = $ahora;
+            }
+            ftruncate($fp, 0);
+            rewind($fp);
+            fwrite($fp, json_encode($timestamps));
+            fflush($fp);
+            flock($fp, LOCK_UN);
+        }
+    } finally {
+        fclose($fp);
+    }
+    return !$permitido;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit;
 }
 
-require_once __DIR__ . '/includes/conexion.php';
-require_once __DIR__ . '/env.php';
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    ia_error('METODO', 'Método no permitido.');
+}
 
 // ── Autenticación JWT obligatoria ──
 $allHeaders = function_exists('getallheaders') ? getallheaders() : [];
@@ -43,8 +111,22 @@ if ($moodle_id <= 0) {
 }
 
 $data = json_decode(file_get_contents('php://input'), true);
+if (!is_array($data)) {
+    $data = [];
+}
 
-$mensaje_estudiante = $data['mensaje'] ?? '';
+// ── Guard de entrada: mensaje máximo 2000 caracteres ──
+$mensaje_estudiante = trim((string)($data['mensaje'] ?? ''));
+$mensaje_estudiante = mb_substr($mensaje_estudiante, 0, 2000);
+
+if ($mensaje_estudiante === '') {
+    ia_error('MENSAJE_VACIO', 'Escribe un mensaje para que el tutor pueda ayudarte.');
+}
+
+// ── Rate-limit por usuario (protege el saldo de la API key) ──
+if (ia_rate_limit_excedido($moodle_id)) {
+    ia_error('RATE_LIMIT', 'Vas muy rápido, espera unos segundos.');
+}
 
 try {
     // Obtener datos del usuario
@@ -169,7 +251,15 @@ try {
     $prompt_sistema .= "\nREGLAS: Máximo 300 tokens. Usa **negritas** si es necesario. Saluda con '¡Hola {$nombre}!' si lo conoces.\n";
 
     // Conectar con DeepSeek — API key desde backend/.env
-    $api_key = env_required('DEEPSEEK_API_KEY'); 
+    // ⚠️ NO usamos env_required(): esa función hace exit() con un JSON
+    // {status,msg} que la app no entiende. Con env() respondemos KEY_INVALIDA
+    // limpio y quedará visible en admin/check_ia.php.
+    $api_key = env('DEEPSEEK_API_KEY');
+    if ($api_key === null || $api_key === '') {
+        error_log('[IA][ENV] DEEPSEEK_API_KEY ausente — configura backend/.env (copia de .env.example)');
+        ia_error('KEY_INVALIDA', 'El tutor IA está temporalmente fuera de servicio. El equipo ya fue notificado.');
+    }
+
     $url = 'https://api.deepseek.com/chat/completions';
 
     $payload = [
@@ -186,39 +276,76 @@ try {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 60);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
         'Content-Type: application/json',
         'Authorization: Bearer ' . $api_key
     ]);
 
     $response = curl_exec($ch);
-    $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $httpcode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curl_errno = curl_errno($ch);
     curl_close($ch);
 
-    if ($httpcode == 200) {
-        $respuesta = json_decode($response, true);
-        $texto_ia = $respuesta['choices'][0]['message']['content'];
-        
-        // Limpiar BOM invisible
-        $texto_ia = preg_replace('/^\xEF\xBB\xBF/', '', $texto_ia);
-        
-        echo json_encode([
-            "exito" => true, 
-            "respuesta" => $texto_ia
-        ]);
-    } else {
-        error_log("[IA][DEEPSEEK] HTTP {$httpcode} para moodle_id={$moodle_id}");
-        echo json_encode([
-            "exito" => false, 
-            "error" => "El tutor IA no está disponible en este momento. Intenta más tarde."
-        ]);
+    // Timeout de red (curl errno 28) — HTTP 200, que la app decida el mensaje
+    if ($curl_errno === 28) {
+        ia_error('TIMEOUT', 'El tutor tardó demasiado en responder. Intenta de nuevo.');
     }
+
+    if ($response === false || $curl_errno !== 0) {
+        error_log("[IA][CURL] errno={$curl_errno} moodle_id={$moodle_id}");
+        ia_error('ERROR_IA', 'El tutor IA no está disponible en este momento. Intenta más tarde.');
+    }
+
+    if ($httpcode !== 200) {
+        // Log completo para diagnóstico (jamás la key — solo su longitud)
+        error_log("[IA][DEEPSEEK] HTTP {$httpcode} body=" . substr((string)$response, 0, 800) . " key_len=" . strlen($api_key));
+
+        // Mapear el error que devuelve DeepSeek en el body:
+        // { "error": { "message": "...", "type": "...", "code": "..." } }
+        $err_txt = '';
+        $err_json = json_decode((string)$response, true);
+        if (is_array($err_json) && isset($err_json['error'])) {
+            $e = $err_json['error'];
+            if (is_array($e)) {
+                $err_txt = (string)($e['message'] ?? '') . ' ' . (string)($e['code'] ?? '') . ' ' . (string)($e['type'] ?? '');
+            } elseif (is_string($e)) {
+                $err_txt = $e;
+            }
+        }
+        $err_txt = strtolower($err_txt . ' http' . $httpcode);
+
+        if (str_contains($err_txt, 'insufficient') || str_contains($err_txt, 'balance')) {
+            // MUY común en DeepSeek: la cuenta se quedó sin saldo (HTTP 402)
+            ia_error('SIN_SALDO', 'El tutor IA está temporalmente fuera de servicio. El equipo ya fue notificado.');
+        } elseif (str_contains($err_txt, 'authentication') || str_contains($err_txt, 'invalid_api_key') || $httpcode === 401) {
+            ia_error('KEY_INVALIDA', 'El tutor IA está temporalmente fuera de servicio. El equipo ya fue notificado.');
+        } elseif (str_contains($err_txt, 'rate_limit') || $httpcode === 429) {
+            ia_error('RATE_LIMIT', 'Va muy rápido, espera unos segundos.');
+        }
+        ia_error('ERROR_IA', 'El tutor IA no está disponible en este momento. Intenta más tarde.');
+    }
+
+    // Validar contenido de la respuesta (200 sin contenido = error igual)
+    $respuesta = json_decode((string)$response, true);
+    $texto_ia = $respuesta['choices'][0]['message']['content'] ?? '';
+
+    if (trim((string)$texto_ia) === '') {
+        error_log("[IA][DEEPSEEK] HTTP 200 sin contenido body=" . substr((string)$response, 0, 500));
+        ia_error('ERROR_IA', 'El tutor IA no está disponible en este momento. Intenta más tarde.');
+    }
+
+    // Limpiar BOM invisible
+    $texto_ia = preg_replace('/^\xEF\xBB\xBF/', '', $texto_ia);
+
+    echo json_encode([
+        "exito" => true, 
+        "respuesta" => $texto_ia
+    ], JSON_UNESCAPED_UNICODE);
 
 } catch (Exception $e) {
     error_log("[IA][ERROR] " . $e->getMessage());
-    echo json_encode([
-        "exito" => false, 
-        "error" => "Error del servidor. Intenta más tarde."
-    ]);
+    ia_error('ERROR_IA', 'Error del servidor. Intenta más tarde.');
 }
 ?>

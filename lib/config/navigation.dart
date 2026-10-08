@@ -197,6 +197,7 @@ class Nav {
   // ── Info ──
   static void goAcerca(BuildContext context) => context.push('/acerca');
   static void goPrivacidad(BuildContext context) => context.push('/privacidad');
+  static void goSoporte(BuildContext context) => context.push('/soporte');
 
   // ── Upgrade ──
   static void goUpgrade(BuildContext context) => context.push('/upgrade');

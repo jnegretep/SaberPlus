@@ -126,12 +126,13 @@ llamar a la API desde cualquier dominio sin configuración adicional.
 
 ---
 
-## 6. Limitaciones conocidas (web v1.6.0)
+## 6. Limitaciones conocidas (web v1.6.1)
 
 | Función | Estado en web |
 |---|---|
 | Descargar videos/PDFs offline | Oculto (streaming/pestaña nueva) |
-| Avatar desde galería | Usar avatares predefinidos |
+| Avatar desde galería | ✅ Funciona desde v1.6.1 (subida real en base64; fotos > 4 MB se avisan y se omiten) |
+| Avatar desde cámara | Oculto (el navegador no la soporta con image_picker) |
 | Biometría (huella) | No aplica en web |
 | Crashlytics | No existe en web — errores visibles en Admin → Errores |
 | Notificaciones push | Solo con VAPID key configurada |
@@ -139,7 +140,24 @@ llamar a la API desde cualquier dominio sin configuración adicional.
 
 ---
 
-## 7. Actualizaciones futuras
+## 7. Solución de problemas de compilación
+
+### "Wasm dry run findings" al inicio del build
+**No es un error.** Son advertencias informativas sobre compatibilidad con
+WebAssembly (solo aplicarían si algún día se compila a Wasm). El build JS
+continúa normal. Se pueden silenciar con `flutter build web --release
+--no-wasm-dry-run`.
+
+### `The argument type 'File' can't be assigned to the parameter type 'File'`
+Corregido en **v1.6.1** con el puente multiplataforma
+(`lib/core/io_shim/platform_bridge.dart`). Si reaparece, es que alguna pantalla
+nueva está usando `Image.file()`, `FileImage()` o `VideoPlayerController.file()`
+directamente — migrarla a `fileImageProvider()` / `localVideoController()` del
+puente (ver `CAMBIOS_v1.6.1.md`).
+
+---
+
+## 8. Actualizaciones futuras
 
 Cada vez que cambies código:
 ```bash

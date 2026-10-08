@@ -108,24 +108,363 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['resolve_error'])) {
     exit;
 }
 
-// ── Obtener estadisticas globales ──
- $stats = [];
-try {
-    $stats['total_users'] = (int)$conexion->query("SELECT COUNT(*) FROM usuarios WHERE email_verificado = 1")->fetchColumn();
-    $stats['active_users_7d'] = (int)$conexion->query("SELECT COUNT(*) FROM usuarios WHERE ultimo_login >= DATE_SUB(NOW(), INTERVAL 7 DAY)")->fetchColumn();
-    $stats['active_users_today'] = (int)$conexion->query("SELECT COUNT(*) FROM usuarios WHERE ultimo_login >= CURDATE()")->fetchColumn();
-    $stats['total_simulacros'] = (int)$conexion->query("SELECT COUNT(*) FROM simulacro_resultados")->fetchColumn();
-    $stats['avg_score'] = round((float)$conexion->query("SELECT AVG(puntaje_global) FROM simulacro_resultados")->fetchColumn(), 1);
-    $stats['premium_users'] = (int)$conexion->query("SELECT COUNT(*) FROM usuarios WHERE access_level IN ('premium', 'early_bird')")->fetchColumn();
-    $stats['free_users'] = (int)$conexion->query("SELECT COUNT(*) FROM usuarios WHERE access_level = 'free'")->fetchColumn();
-    $stats['total_challenges'] = (int)$conexion->query("SELECT COUNT(*) FROM challenges WHERE estado = 'finished'")->fetchColumn();
-    $stats['total_xp'] = (int)$conexion->query("SELECT COALESCE(SUM(total_xp), 0) FROM user_gamification")->fetchColumn();
-    $stats['notifications_today'] = (int)$conexion->query("SELECT COUNT(*) FROM notifications WHERE DATE(created_at) = CURDATE()")->fetchColumn();
-    $stats['new_users_today'] = (int)$conexion->query("SELECT COUNT(*) FROM usuarios WHERE DATE(registration_date) = CURDATE()")->fetchColumn();
-    $stats['new_users_week'] = (int)$conexion->query("SELECT COUNT(*) FROM usuarios WHERE registration_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)")->fetchColumn();
-} catch (Exception $e) {
-    error_log("[ADMIN] Error obteniendo stats: " . $e->getMessage());
+// ── CSRF del panel admin (formularios de la sección Colegios, v1.7.0 B2B) ──
+if (empty($_SESSION['admin_csrf'])) {
+    $_SESSION['admin_csrf'] = bin2hex(random_bytes(32));
 }
+
+function admin_csrf_field(): string
+{
+    return '<input type="hidden" name="csrf" value="' . htmlspecialchars($_SESSION['admin_csrf'], ENT_QUOTES, 'UTF-8') . '">';
+}
+
+function admin_csrf_verify(): void
+{
+    $token = (string)($_POST['csrf'] ?? '');
+    if ($token === '' || !hash_equals($_SESSION['admin_csrf'], $token)) {
+        http_response_code(403);
+        exit('Token CSRF invalido');
+    }
+}
+
+// ── Sección Colegios (B2B): crear director ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['crear_director'])) {
+    admin_csrf_verify();
+    $nombre     = trim((string)($_POST['nombre'] ?? ''));
+    $email      = strtolower(trim((string)($_POST['email'] ?? '')));
+    $colegioDir = trim((string)($_POST['colegio'] ?? ''));
+    $telefono   = trim((string)($_POST['telefono'] ?? ''));
+    $password   = (string)($_POST['password'] ?? '');
+
+    if ($nombre === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)
+        || $colegioDir === '' || strlen($password) < 8) {
+        header('Location: index.php?section=colegios&msg=datos_invalidos');
+        exit;
+    }
+    try {
+        $ins = $conexion->prepare("
+            INSERT INTO directores (nombre, email, contrasena_hash, colegio, telefono)
+            VALUES (:n, :e, :p, :c, :t)
+        ");
+        $ins->execute([
+            ':n' => $nombre,
+            ':e' => $email,
+            ':p' => password_hash($password, PASSWORD_DEFAULT),
+            ':c' => $colegioDir,
+            ':t' => ($telefono !== '' ? $telefono : null),
+        ]);
+        header('Location: index.php?section=colegios&msg=director_creado');
+        exit;
+    } catch (PDOException $ex) {
+        if ($ex->getCode() === '23000') {
+            header('Location: index.php?section=colegios&msg=email_duplicado');
+            exit;
+        }
+        error_log('[ADMIN] crear_director: ' . $ex->getMessage());
+        header('Location: index.php?section=colegios&msg=error_bd');
+        exit;
+    }
+}
+
+// ── Sección Colegios (B2B): activar/desactivar director ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['toggle_director'])) {
+    admin_csrf_verify();
+    $idDirector = (int)($_POST['director_id'] ?? 0);
+    try {
+        $stmt = $conexion->prepare("UPDATE directores SET activo = 1 - activo WHERE id = :id");
+        $stmt->execute([':id' => $idDirector]);
+    } catch (PDOException $ex) {
+        error_log('[ADMIN] toggle_director: ' . $ex->getMessage());
+    }
+    header('Location: index.php?section=colegios&msg=estado_actualizado');
+    exit;
+}
+
+// ── Sección Colegios (B2B): reset de contraseña de director ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reset_director_pass'])) {
+    admin_csrf_verify();
+    $idDirector = (int)($_POST['director_id'] ?? 0);
+    $pool = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    $nueva = '';
+    for ($i = 0; $i < 12; $i++) {
+        $nueva .= $pool[random_int(0, strlen($pool) - 1)];
+    }
+    try {
+        $stmt = $conexion->prepare("UPDATE directores SET contrasena_hash = :h WHERE id = :id");
+        $stmt->execute([':h' => password_hash($nueva, PASSWORD_DEFAULT), ':id' => $idDirector]);
+        $_SESSION['admin_flash_pass'] = ['id' => $idDirector, 'pass' => $nueva];
+    } catch (PDOException $ex) {
+        error_log('[ADMIN] reset_director_pass: ' . $ex->getMessage());
+    }
+    header('Location: index.php?section=colegios&msg=pass_reset');
+    exit;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SECCIÓN PROMOCIONES (v1.7.0): crear / editar / activar / eliminar
+// ═══════════════════════════════════════════════════════════════
+
+// ── Promociones: guardar (crear o actualizar) ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['promo_save'])) {
+    admin_csrf_verify();
+    $id          = (int)($_POST['promo_id'] ?? 0);
+    $titulo      = trim((string)($_POST['titulo'] ?? ''));
+    $descripcion = mb_substr(trim((string)($_POST['descripcion'] ?? '')), 0, 255);
+    $tipo        = in_array($_POST['tipo'] ?? '', ['banner', 'codigo'], true) ? $_POST['tipo'] : 'banner';
+    $codigo      = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string)($_POST['codigo'] ?? '')));
+    $dtoTipo     = ($_POST['descuento_tipo'] ?? '') === 'monto' ? 'monto' : 'porcentaje';
+    $dtoValor    = (float)($_POST['descuento_valor'] ?? 0);
+    $planId      = (int)($_POST['plan_id'] ?? 0);
+    $fechaInicio = (string)($_POST['fecha_inicio'] ?? '');
+    $fechaFin    = (string)($_POST['fecha_fin'] ?? '');
+    $maxUsos     = trim((string)($_POST['max_usos'] ?? ''));
+    $activo      = isset($_POST['activo']) ? 1 : 0;
+
+    $errores = [];
+    if ($titulo === '')                              $errores[] = 'titulo';
+    if ($dtoValor <= 0)                              $errores[] = 'descuento';
+    if ($dtoTipo === 'porcentaje' && $dtoValor > 100) $errores[] = 'descuento';
+    if ($tipo === 'codigo' && strlen($codigo) < 4)    $errores[] = 'codigo';
+    $tsIni = strtotime($fechaInicio);
+    $tsFin = strtotime($fechaFin);
+    if ($tsIni === false || $tsFin === false || $tsFin <= $tsIni) $errores[] = 'fechas';
+
+    if (!empty($errores)) {
+        header('Location: index.php?section=promociones&msg=promo_datos_invalidos');
+        exit;
+    }
+
+    $fechaInicio = date('Y-m-d H:i:s', $tsIni);
+    $fechaFin    = date('Y-m-d H:i:s', $tsFin);
+    $planIdSql   = $planId > 0 ? $planId : null;
+    $maxUsosSql  = ($maxUsos !== '' && (int)$maxUsos > 0) ? (int)$maxUsos : null;
+
+    try {
+        if ($id > 0) {
+            $stmt = $conexion->prepare("
+                UPDATE promociones SET
+                    titulo = :t, descripcion = :d, tipo = :ti, codigo = :c,
+                    descuento_tipo = :dt, descuento_valor = :dv, plan_id = :p,
+                    fecha_inicio = :fi, fecha_fin = :ff, max_usos = :mu, activo = :a
+                WHERE id = :id
+            ");
+            $stmt->execute([
+                ':t' => $titulo, ':d' => ($descripcion !== '' ? $descripcion : null),
+                ':ti' => $tipo, ':c' => ($tipo === 'codigo' ? $codigo : null),
+                ':dt' => $dtoTipo, ':dv' => $dtoValor, ':p' => $planIdSql,
+                ':fi' => $fechaInicio, ':ff' => $fechaFin, ':mu' => $maxUsosSql,
+                ':a' => $activo, ':id' => $id,
+            ]);
+            header('Location: index.php?section=promociones&msg=promo_actualizada');
+        } else {
+            $stmt = $conexion->prepare("
+                INSERT INTO promociones
+                    (titulo, descripcion, tipo, codigo, descuento_tipo, descuento_valor,
+                     plan_id, fecha_inicio, fecha_fin, max_usos, activo)
+                VALUES
+                    (:t, :d, :ti, :c, :dt, :dv, :p, :fi, :ff, :mu, :a)
+            ");
+            $stmt->execute([
+                ':t' => $titulo, ':d' => ($descripcion !== '' ? $descripcion : null),
+                ':ti' => $tipo, ':c' => ($tipo === 'codigo' ? $codigo : null),
+                ':dt' => $dtoTipo, ':dv' => $dtoValor, ':p' => $planIdSql,
+                ':fi' => $fechaInicio, ':ff' => $fechaFin, ':mu' => $maxUsosSql,
+                ':a' => $activo,
+            ]);
+            header('Location: index.php?section=promociones&msg=promo_creada');
+        }
+        exit;
+    } catch (PDOException $ex) {
+        if ($ex->getCode() === '23000') {
+            header('Location: index.php?section=promociones&msg=promo_codigo_duplicado');
+            exit;
+        }
+        error_log('[ADMIN] promo_save: ' . $ex->getMessage());
+        header('Location: index.php?section=promociones&msg=promo_error_bd');
+        exit;
+    }
+}
+
+// ── Promociones: activar/desactivar ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['promo_toggle'])) {
+    admin_csrf_verify();
+    try {
+        $stmt = $conexion->prepare("UPDATE promociones SET activo = 1 - activo WHERE id = :id");
+        $stmt->execute([':id' => (int)($_POST['promo_id'] ?? 0)]);
+    } catch (PDOException $ex) {
+        error_log('[ADMIN] promo_toggle: ' . $ex->getMessage());
+    }
+    header('Location: index.php?section=promociones&msg=promo_estado');
+    exit;
+}
+
+// ── Promociones: eliminar ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['promo_delete'])) {
+    admin_csrf_verify();
+    try {
+        $stmt = $conexion->prepare("DELETE FROM promociones WHERE id = :id");
+        $stmt->execute([':id' => (int)($_POST['promo_id'] ?? 0)]);
+    } catch (PDOException $ex) {
+        error_log('[ADMIN] promo_delete: ' . $ex->getMessage());
+    }
+    header('Location: index.php?section=promociones&msg=promo_eliminada');
+    exit;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SECCIÓN SOPORTE (v1.7.0): responder / cambiar estado de quejas
+// ═══════════════════════════════════════════════════════════════
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['queja_update'])) {
+    admin_csrf_verify();
+    $id        = (int)($_POST['queja_id'] ?? 0);
+    $respuesta = trim((string)($_POST['respuesta'] ?? ''));
+    $estado    = in_array($_POST['estado'] ?? '', ['nuevo', 'en_proceso', 'resuelto', 'descartado'], true)
+        ? $_POST['estado'] : 'en_proceso';
+
+    if ($id > 0) {
+        try {
+            $stmt = $conexion->prepare("
+                UPDATE quejas_sugerencias
+                SET estado = :e,
+                    respuesta_admin = :r
+                WHERE id = :id
+            ");
+            $stmt->execute([
+                ':e' => $estado,
+                ':r' => ($respuesta !== '' ? mb_substr($respuesta, 0, 2000) : null),
+                ':id' => $id,
+            ]);
+            header('Location: index.php?section=soporte&msg=queja_actualizada&view=' . $id);
+            exit;
+        } catch (PDOException $ex) {
+            error_log('[ADMIN] queja_update: ' . $ex->getMessage());
+            header('Location: index.php?section=soporte&msg=queja_error');
+            exit;
+        }
+    }
+    header('Location: index.php?section=soporte');
+    exit;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SECCIÓN USUARIOS (v1.7.0): editar perfil de cualquier usuario
+// ═══════════════════════════════════════════════════════════════
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['user_save'])) {
+    admin_csrf_verify();
+    $idUsuario = (int)($_POST['user_id'] ?? 0);
+
+    $nombre       = trim((string)($_POST['nombre'] ?? ''));
+    $email        = strtolower(trim((string)($_POST['email'] ?? '')));
+    $telefono     = trim((string)($_POST['telefono'] ?? ''));
+    $departamento = trim((string)($_POST['departamento'] ?? ''));
+    $ciudad       = trim((string)($_POST['ciudad'] ?? ''));
+    $colegio      = trim((string)($_POST['colegio'] ?? ''));
+    $grado        = trim((string)($_POST['grado'] ?? ''));
+
+    $tiposValidos  = ['estudiante', 'profesor', 'admin'];
+    $nivelesValidos = ['free', 'premium', 'early_bird'];
+    $tipoUsuario   = in_array($_POST['tipo_usuario'] ?? '', $tiposValidos, true) ? $_POST['tipo_usuario'] : 'estudiante';
+    $accessLevel   = in_array($_POST['access_level'] ?? '', $nivelesValidos, true) ? $_POST['access_level'] : 'free';
+    $emailVerif    = isset($_POST['email_verificado']) ? 1 : 0;
+    $activo        = isset($_POST['activo']) ? 1 : 0;
+
+    if ($idUsuario <= 0 || $nombre === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        header('Location: index.php?section=users&msg=user_datos_invalidos');
+        exit;
+    }
+
+    try {
+        $stmt = $conexion->prepare("
+            UPDATE usuarios SET
+                nombre = :n, email = :e, telefono = :t, departamento = :dep,
+                ciudad = :c, colegio = :col, grado = :g,
+                tipo_usuario = :tu, access_level = :al, email_verificado = :ev
+            WHERE id_usuario = :id
+        ");
+        $stmt->execute([
+            ':n' => $nombre, ':e' => $email,
+            ':t' => ($telefono !== '' ? $telefono : null),
+            ':dep' => ($departamento !== '' ? $departamento : null),
+            ':c' => ($ciudad !== '' ? $ciudad : null),
+            ':col' => ($colegio !== '' ? $colegio : null),
+            ':g' => ($grado !== '' ? $grado : null),
+            ':tu' => $tipoUsuario, ':al' => $accessLevel, ':ev' => $emailVerif,
+            ':id' => $idUsuario,
+        ]);
+
+        // Columna activo (migración 005): puede no existir aún → reintento sin ella
+        try {
+            $stmtA = $conexion->prepare("UPDATE usuarios SET activo = :a WHERE id_usuario = :id");
+            $stmtA->execute([':a' => $activo, ':id' => $idUsuario]);
+        } catch (PDOException $exA) {
+            error_log('[ADMIN] user_save activo (columna inexistente): ' . $exA->getMessage());
+        }
+
+        header('Location: index.php?section=users&edit=' . $idUsuario . '&msg=user_guardado');
+        exit;
+    } catch (PDOException $ex) {
+        if ($ex->getCode() === '23000') {
+            header('Location: index.php?section=users&edit=' . $idUsuario . '&msg=user_email_duplicado');
+            exit;
+        }
+        error_log('[ADMIN] user_save: ' . $ex->getMessage());
+        header('Location: index.php?section=users&edit=' . $idUsuario . '&msg=user_error_bd');
+        exit;
+    }
+}
+
+// ── Obtener estadisticas globales ──
+// 🔧 FIX: cada stat en su propio try/catch. Si una query falla (columna
+// inexistente, tabla ausente, etc.), las demás siguen calculándose en
+// lugar de dejar todo el array $stats vacío.
+$stats = [];
+
+$safeStat = function (string $key, callable $fn, $default = 0) use (&$stats) {
+    try {
+        $stats[$key] = $fn();
+    } catch (Throwable $e) {
+        error_log("[ADMIN] stat '$key' falló: " . $e->getMessage());
+        $stats[$key] = $default;
+    }
+};
+
+$safeStat('total_users', fn() =>
+    (int)$conexion->query("SELECT COUNT(*) FROM usuarios WHERE email_verificado = 1")->fetchColumn());
+
+$safeStat('active_users_7d', fn() =>
+    (int)$conexion->query("SELECT COUNT(*) FROM usuarios WHERE ultimo_login >= DATE_SUB(NOW(), INTERVAL 7 DAY)")->fetchColumn());
+
+$safeStat('active_users_today', fn() =>
+    (int)$conexion->query("SELECT COUNT(*) FROM usuarios WHERE ultimo_login >= CURDATE()")->fetchColumn());
+
+$safeStat('total_simulacros', fn() =>
+    (int)$conexion->query("SELECT COUNT(*) FROM simulacro_resultados")->fetchColumn());
+
+$safeStat('avg_score', fn() =>
+    round((float)$conexion->query("SELECT AVG(puntaje_global) FROM simulacro_resultados")->fetchColumn(), 1));
+
+$safeStat('premium_users', fn() =>
+    (int)$conexion->query("SELECT COUNT(*) FROM usuarios WHERE access_level IN ('premium', 'early_bird')")->fetchColumn());
+
+$safeStat('free_users', fn() =>
+    (int)$conexion->query("SELECT COUNT(*) FROM usuarios WHERE access_level = 'free'")->fetchColumn());
+
+// 🔧 FIX: la tabla `challenges` usa `status` (enum en español), no `estado`.
+// Valores válidos: 'pendiente','en_curso','finalizado','eliminado'.
+$safeStat('total_challenges', fn() =>
+    (int)$conexion->query("SELECT COUNT(*) FROM challenges WHERE status = 'finalizado'")->fetchColumn());
+
+$safeStat('total_xp', fn() =>
+    (int)$conexion->query("SELECT COALESCE(SUM(total_xp), 0) FROM user_gamification")->fetchColumn());
+
+$safeStat('notifications_today', fn() =>
+    (int)$conexion->query("SELECT COUNT(*) FROM notifications WHERE DATE(created_at) = CURDATE()")->fetchColumn());
+
+$safeStat('new_users_today', fn() =>
+    (int)$conexion->query("SELECT COUNT(*) FROM usuarios WHERE DATE(registration_date) = CURDATE()")->fetchColumn());
+
+$safeStat('new_users_week', fn() =>
+    (int)$conexion->query("SELECT COUNT(*) FROM usuarios WHERE registration_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)")->fetchColumn());
 ?>
 
 <!DOCTYPE html>
@@ -189,6 +528,9 @@ try {
         .bar-fill.green { background: #22C55E; }
         .bar-value { width: 46px; font-size: 12px; font-weight: 700; color: #334155; flex-shrink: 0; }
         .muted { color: #94A3B8; font-size: 13px; }
+        .flash { padding: 12px 18px; border-radius: 12px; margin-bottom: 20px; font-size: 14px; font-weight: 600; }
+        .flash-ok { background: #D1FAE5; color: #065F46; }
+        .flash-err { background: #FEE2E2; color: #991B1B; }
         @media (max-width: 768px) { .sidebar { display: none; } .main-content { margin-left: 0; padding: 16px; } .grid-2 { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -202,9 +544,12 @@ try {
     </div>
     <a href="index.php" class="nav-item <?= $section === 'dashboard' ? 'active' : '' ?>"><span class="nav-icon">&#128202;</span> Dashboard</a>
     <a href="index.php?section=users" class="nav-item <?= $section === 'users' ? 'active' : '' ?>"><span class="nav-icon">&#128100;</span> Usuarios</a>
+    <a href="index.php?section=colegios" class="nav-item <?= $section === 'colegios' ? 'active' : '' ?>"><span class="nav-icon">&#127979;</span> Colegios</a>
     <a href="index.php?section=ads" class="nav-item <?= $section === 'ads' ? 'active' : '' ?>"><span class="nav-icon">&#128227;</span> Anuncios</a>
     <a href="index.php?section=plans" class="nav-item <?= $section === 'plans' ? 'active' : '' ?>"><span class="nav-icon">&#128179;</span> Planes</a>
+    <a href="index.php?section=promociones" class="nav-item <?= $section === 'promociones' ? 'active' : '' ?>"><span class="nav-icon">&#127873;</span> Promociones</a>
     <a href="index.php?section=notifications" class="nav-item <?= $section === 'notifications' ? 'active' : '' ?>"><span class="nav-icon">&#128276;</span> Notificaciones</a>
+    <a href="index.php?section=soporte" class="nav-item <?= $section === 'soporte' ? 'active' : '' ?>"><span class="nav-icon">&#128172;</span> Soporte</a>
     <a href="index.php?section=analytics" class="nav-item <?= $section === 'analytics' ? 'active' : '' ?>"><span class="nav-icon">&#128200;</span> Analítica</a>
     <a href="index.php?section=errors" class="nav-item <?= $section === 'errors' ? 'active' : '' ?>"><span class="nav-icon">&#9888;</span> Errores</a>
     <a href="index.php?section=activity" class="nav-item <?= $section === 'activity' ? 'active' : '' ?>"><span class="nav-icon">&#128293;</span> Actividad</a>
@@ -301,18 +646,142 @@ try {
             </table>
         </div>
 
-    <?php elseif ($section === 'users'): ?>
-        <!-- USUARIOS -->
+    <?php elseif ($section === 'users'):
+        // ── USUARIOS (v1.7.0: búsqueda + edición de perfil) ──
+        $q = trim((string)($_GET['q'] ?? ''));
+        $editId = (int)($_GET['edit'] ?? 0);
+
+        // Mensajes flash
+        $msgsUsers = [
+            'user_guardado'        => ['ok',  'Perfil actualizado correctamente.'],
+            'user_datos_invalidos' => ['err', 'Datos inválidos: nombre y correo válido son obligatorios.'],
+            'user_email_duplicado' => ['err', 'Ya existe otro usuario con ese correo.'],
+            'user_error_bd'        => ['err', 'Error de base de datos. Revisa el log del servidor.'],
+        ];
+        $msgKeyU = (string)($_GET['msg'] ?? '');
+        if ($msgKeyU !== '' && isset($msgsUsers[$msgKeyU])): ?>
+            <div class="flash flash-<?= $msgsUsers[$msgKeyU][0] ?>"><?= $msgsUsers[$msgKeyU][1] ?></div>
+        <?php endif;
+
+        if ($editId > 0):
+            // ── Formulario de edición de usuario ──
+            $stmt = $conexion->prepare("
+                SELECT id_usuario, moodle_id, nombre, email, telefono, departamento, ciudad,
+                       colegio, grado, tipo_usuario, access_level, email_verificado,
+                       registration_date, ultimo_login
+                FROM usuarios WHERE id_usuario = :id LIMIT 1
+            ");
+            $stmt->execute([':id' => $editId]);
+            $eu = $stmt->fetch(PDO::FETCH_ASSOC);
+            $euActivo = 1;
+            if ($eu) {
+                try {
+                    $stmtA = $conexion->prepare("SELECT activo FROM usuarios WHERE id_usuario = :id");
+                    $stmtA->execute([':id' => $editId]);
+                    $euActivo = (int)($stmtA->fetchColumn() ?: 1);
+                } catch (Exception $exA) { /* columna aún no migrada */ }
+            }
+        ?>
+        <?php if (!$eu): ?>
+            <div class="section-card"><p>Usuario no encontrado. <a href="index.php?section=users">Volver al listado</a>.</p></div>
+        <?php else: ?>
+            <div class="section-card">
+                <h3 class="section-title">&#9998; Editar usuario #<?= (int)$eu['id_usuario'] ?></h3>
+                <p class="muted" style="margin-bottom:16px;">
+                    Registro: <?= htmlspecialchars((string)$eu['registration_date']) ?> ·
+                    Último login: <?= htmlspecialchars((string)($eu['ultimo_login'] ?? 'Nunca')) ?> ·
+                    Moodle ID: <?= (int)($eu['moodle_id'] ?? 0) ?>
+                </p>
+                <form method="POST">
+                    <?= admin_csrf_field() ?>
+                    <input type="hidden" name="user_id" value="<?= (int)$eu['id_usuario'] ?>">
+                    <div class="grid-2">
+                        <div class="form-group"><label>Nombre completo</label>
+                            <input type="text" name="nombre" required value="<?= htmlspecialchars($eu['nombre']) ?>"></div>
+                        <div class="form-group"><label>Correo electrónico</label>
+                            <input type="email" name="email" required value="<?= htmlspecialchars($eu['email']) ?>"></div>
+                        <div class="form-group"><label>Teléfono</label>
+                            <input type="text" name="telefono" value="<?= htmlspecialchars($eu['telefono'] ?? '') ?>"></div>
+                        <div class="form-group"><label>Departamento</label>
+                            <input type="text" name="departamento" value="<?= htmlspecialchars($eu['departamento'] ?? '') ?>"></div>
+                        <div class="form-group"><label>Ciudad</label>
+                            <input type="text" name="ciudad" value="<?= htmlspecialchars($eu['ciudad'] ?? '') ?>"></div>
+                        <div class="form-group"><label>Colegio</label>
+                            <input type="text" name="colegio" value="<?= htmlspecialchars($eu['colegio'] ?? '') ?>"></div>
+                        <div class="form-group"><label>Grado</label>
+                            <input type="text" name="grado" value="<?= htmlspecialchars($eu['grado'] ?? '') ?>"></div>
+                        <div class="form-group"><label>Tipo de usuario</label>
+                            <select name="tipo_usuario">
+                                <?php foreach (['estudiante', 'profesor', 'admin'] as $tp): ?>
+                                    <option value="<?= $tp ?>" <?= $eu['tipo_usuario'] === $tp ? 'selected' : '' ?>><?= ucfirst($tp) ?></option>
+                                <?php endforeach; ?>
+                            </select></div>
+                        <div class="form-group"><label>Nivel de acceso (plan)</label>
+                            <select name="access_level">
+                                <?php foreach (['free', 'premium', 'early_bird'] as $al): ?>
+                                    <option value="<?= $al ?>" <?= $eu['access_level'] === $al ? 'selected' : '' ?>><?= ucfirst($al) ?></option>
+                                <?php endforeach; ?>
+                            </select></div>
+                        <div class="form-group" style="display:flex; align-items:center; gap:24px; padding-top:26px;">
+                            <label style="display:flex; align-items:center; gap:8px; margin:0;">
+                                <input type="checkbox" name="email_verificado" style="width:auto;" <?= $eu['email_verificado'] ? 'checked' : '' ?>> Email verificado
+                            </label>
+                            <label style="display:flex; align-items:center; gap:8px; margin:0;">
+                                <input type="checkbox" name="activo" style="width:auto;" <?= $euActivo ? 'checked' : '' ?>> Cuenta activa
+                            </label>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:12px; margin-top:8px;">
+                        <button type="submit" name="user_save" value="1" class="btn btn-primary">Guardar cambios</button>
+                        <a href="index.php?section=users&q=<?= urlencode($q) ?>" class="btn" style="background:#e2e8f0; color:#334155;">Cancelar</a>
+                    </div>
+                </form>
+            </div>
+        <?php endif; ?>
+
+        <?php else: ?>
+        <!-- Listado con búsqueda -->
+        <div class="section-card" style="padding:16px 20px;">
+            <form method="GET" action="index.php" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                <input type="hidden" name="section" value="users">
+                <input type="text" name="q" placeholder="Buscar por nombre, correo o ID..." value="<?= htmlspecialchars($q) ?>" style="flex:1; min-width:220px; padding:10px 14px; border:2px solid #e2e8f0; border-radius:10px; font-size:14px;">
+                <button type="submit" class="btn btn-primary">Buscar</button>
+                <?php if ($q !== ''): ?>
+                    <a href="index.php?section=users" class="btn" style="background:#e2e8f0; color:#334155;">Limpiar</a>
+                <?php endif; ?>
+            </form>
+        </div>
         <div class="table-container">
             <table>
-                <thead><tr><th>ID</th><th>Nombre</th><th>Email</th><th>Tipo</th><th>Plan</th><th>Verificado</th><th>Ciudad</th><th>Colegio</th><th>Registro</th><th>Ultimo Login</th></tr></thead>
+                <thead><tr><th>ID</th><th>Nombre</th><th>Email</th><th>Tipo</th><th>Plan</th><th>Verificado</th><th>Ciudad</th><th>Colegio</th><th>Registro</th><th>Ultimo Login</th><th></th></tr></thead>
                 <tbody>
                 <?php
-                $users = $conexion->query("
-                    SELECT id_usuario, nombre, email, tipo_usuario, access_level,
-                           email_verificado, ciudad, colegio, registration_date, ultimo_login
-                    FROM usuarios ORDER BY id_usuario DESC LIMIT 100
-                ")->fetchAll(PDO::FETCH_ASSOC);
+                try {
+                    if ($q !== '') {
+                        $stmt = $conexion->prepare("
+                            SELECT id_usuario, nombre, email, tipo_usuario, access_level,
+                                   email_verificado, ciudad, colegio, registration_date, ultimo_login
+                            FROM usuarios
+                            WHERE nombre LIKE :q OR email LIKE :q OR id_usuario = :qid
+                            ORDER BY id_usuario DESC LIMIT 100
+                        ");
+                        $stmt->execute([':q' => '%' . $q . '%', ':qid' => (int)$q]);
+                    } else {
+                        $stmt = $conexion->prepare("
+                            SELECT id_usuario, nombre, email, tipo_usuario, access_level,
+                                   email_verificado, ciudad, colegio, registration_date, ultimo_login
+                            FROM usuarios ORDER BY id_usuario DESC LIMIT 100
+                        ");
+                        $stmt->execute();
+                    }
+                    $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                } catch (Exception $exU) {
+                    $users = $conexion->query("
+                        SELECT id_usuario, nombre, email, tipo_usuario, access_level,
+                               email_verificado, ciudad, colegio, registration_date, ultimo_login
+                        FROM usuarios ORDER BY id_usuario DESC LIMIT 100
+                    ")->fetchAll(PDO::FETCH_ASSOC);
+                }
                 foreach ($users as $u):
                 ?>
                     <tr>
@@ -326,11 +795,315 @@ try {
                         <td><?= htmlspecialchars($u['colegio'] ?? '-') ?></td>
                         <td><?= $u['registration_date'] ?? '-' ?></td>
                         <td><?= $u['ultimo_login'] ?? 'Nunca' ?></td>
+                        <td><a class="btn btn-primary" style="padding:6px 12px; font-size:12px;" href="index.php?section=users&edit=<?= $u['id_usuario'] ?>&q=<?= urlencode($q) ?>">Editar</a></td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
+        <?php endif; ?>
+
+    <?php elseif ($section === 'promociones'):
+        // ── PROMOCIONES (v1.7.0) ──
+        $promoEdit = null;
+        $editPromoId = (int)($_GET['edit'] ?? 0);
+        $promosDisponibles = true;
+        try {
+            $promos = $conexion->query("SELECT * FROM promociones ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
+            $planesLista = $conexion->query("SELECT id, name FROM plans ORDER BY price ASC")->fetchAll(PDO::FETCH_ASSOC);
+            if ($editPromoId > 0) {
+                $stmtPE = $conexion->prepare("SELECT * FROM promociones WHERE id = :id");
+                $stmtPE->execute([':id' => $editPromoId]);
+                $promoEdit = $stmtPE->fetch(PDO::FETCH_ASSOC);
+            }
+        } catch (Exception $exP) {
+            $promosDisponibles = false;
+            $promos = [];
+            $planesLista = [];
+        }
+
+        $msgsPromo = [
+            'promo_creada'          => ['ok',  'Promoción creada. Se verá en la app de inmediato.'],
+            'promo_actualizada'     => ['ok',  'Promoción actualizada.'],
+            'promo_eliminada'       => ['ok',  'Promoción eliminada.'],
+            'promo_estado'          => ['ok',  'Estado de la promoción actualizado.'],
+            'promo_datos_invalidos' => ['err', 'Datos inválidos. Revisa título, descuento, código (mín. 4 caracteres) y fechas (fin > inicio).'],
+            'promo_codigo_duplicado'=> ['err', 'Ya existe una promoción con ese código.'],
+            'promo_error_bd'        => ['err', 'Error de base de datos. Revisa el log del servidor.'],
+        ];
+        $msgKeyP = (string)($_GET['msg'] ?? '');
+        if ($msgKeyP !== '' && isset($msgsPromo[$msgKeyP])): ?>
+            <div class="flash flash-<?= $msgsPromo[$msgKeyP][0] ?>"><?= $msgsPromo[$msgKeyP][1] ?></div>
+        <?php endif; ?>
+
+        <?php if (!$promosDisponibles): ?>
+            <div class="section-card">
+                <h3 class="section-title">Migración pendiente</h3>
+                <p class="muted">Ejecuta <code>backend/migrations/006_promociones_quejas.sql</code> en MySQL para habilitar esta sección.</p>
+            </div>
+        <?php else: ?>
+
+        <!-- Formulario crear/editar -->
+        <div class="section-card">
+            <h3 class="section-title"><?= $promoEdit ? '&#9998; Editar promoción #' . (int)$promoEdit['id'] : '&#127873; Nueva promoción' ?></h3>
+            <p class="muted" style="margin-bottom:16px;">
+                Los <strong>banners</strong> con descuento aparecen en la pantalla Premium del app al instante y se aplican automáticamente al pagar en la web (Wompi).
+                Los <strong>códigos</strong> los escribe el usuario al pagar en la web.
+                <em>Nota Google Play: en Android los precios los fija Play Console — usa los códigos promociales de Play para equivalentes.</em>
+            </p>
+            <form method="POST">
+                <?= admin_csrf_field() ?>
+                <input type="hidden" name="promo_id" value="<?= (int)($promoEdit['id'] ?? 0) ?>">
+                <div class="grid-2">
+                    <div class="form-group"><label>Título *</label>
+                        <input type="text" name="titulo" required maxlength="120" value="<?= htmlspecialchars($promoEdit['titulo'] ?? '') ?>" placeholder="Ej: Vuelta al cole -30%"></div>
+                    <div class="form-group"><label>Descripción (opcional)</label>
+                        <input type="text" name="descripcion" maxlength="255" value="<?= htmlspecialchars($promoEdit['descripcion'] ?? '') ?>" placeholder="Ej: 30% de descuento en el plan anual por inicio de clases"></div>
+                    <div class="form-group"><label>Tipo</label>
+                        <select name="tipo" id="promoTipo">
+                            <option value="banner" <?= ($promoEdit['tipo'] ?? '') === 'banner' ? 'selected' : '' ?>>Banner (visible en el app)</option>
+                            <option value="codigo" <?= ($promoEdit['tipo'] ?? '') === 'codigo' ? 'selected' : '' ?>>Código canjeable (web)</option>
+                        </select></div>
+                    <div class="form-group"><label>Código (solo tipo código)</label>
+                        <div style="display:flex; gap:8px;">
+                            <input type="text" name="codigo" id="promoCodigo" maxlength="40" value="<?= htmlspecialchars($promoEdit['codigo'] ?? '') ?>" placeholder="Ej: VUELTAALCOLE30">
+                            <button type="button" class="btn" style="background:#e2e8f0; color:#334155; white-space:nowrap;" onclick="generarCodigo()">Generar</button>
+                        </div></div>
+                    <div class="form-group"><label>Tipo de descuento</label>
+                        <select name="descuento_tipo">
+                            <option value="porcentaje" <?= ($promoEdit['descuento_tipo'] ?? '') === 'porcentaje' ? 'selected' : '' ?>>Porcentaje (%)</option>
+                            <option value="monto" <?= ($promoEdit['descuento_tipo'] ?? '') === 'monto' ? 'selected' : '' ?>>Monto fijo (COP)</option>
+                        </select></div>
+                    <div class="form-group"><label>Valor del descuento *</label>
+                        <input type="number" name="descuento_valor" step="any" min="1" required value="<?= htmlspecialchars((string)($promoEdit['descuento_valor'] ?? '')) ?>" placeholder="Ej: 30"></div>
+                    <div class="form-group"><label>Aplica a</label>
+                        <select name="plan_id">
+                            <option value="0">Todos los planes</option>
+                            <?php foreach ($planesLista as $pl): ?>
+                                <option value="<?= (int)$pl['id'] ?>" <?= (int)($promoEdit['plan_id'] ?? 0) === (int)$pl['id'] ? 'selected' : '' ?>><?= htmlspecialchars($pl['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select></div>
+                    <div class="form-group"><label>Usos máximos (vacío = ilimitado)</label>
+                        <input type="number" name="max_usos" min="1" value="<?= htmlspecialchars((string)($promoEdit['max_usos'] ?? '')) ?>" placeholder="Ej: 100"></div>
+                    <div class="form-group"><label>Fecha inicio *</label>
+                        <input type="datetime-local" name="fecha_inicio" required value="<?= !empty($promoEdit['fecha_inicio']) ? date('Y-m-d\TH:i', strtotime($promoEdit['fecha_inicio'])) : date('Y-m-d\TH:i') ?>"></div>
+                    <div class="form-group"><label>Fecha fin *</label>
+                        <input type="datetime-local" name="fecha_fin" required value="<?= !empty($promoEdit['fecha_fin']) ? date('Y-m-d\TH:i', strtotime($promoEdit['fecha_fin'])) : date('Y-m-d\TH:i', strtotime('+30 days')) ?>"></div>
+                </div>
+                <div class="form-group" style="display:flex; align-items:center; gap:8px;">
+                    <input type="checkbox" name="activo" id="promoActivo" style="width:auto;" <?= (int)($promoEdit['activo'] ?? 1) ? 'checked' : '' ?>>
+                    <label for="promoActivo" style="margin:0;">Activa (visible y aplicable)</label>
+                </div>
+                <div style="display:flex; gap:12px;">
+                    <button type="submit" name="promo_save" value="1" class="btn btn-primary"><?= $promoEdit ? 'Guardar cambios' : 'Crear promoción' ?></button>
+                    <?php if ($promoEdit): ?>
+                        <a href="index.php?section=promociones" class="btn" style="background:#e2e8f0; color:#334155;">Cancelar</a>
+                    <?php endif; ?>
+                </div>
+            </form>
+            <script>
+                function generarCodigo() {
+                    var pool = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+                    var out = '';
+                    for (var i = 0; i < 10; i++) out += pool.charAt(Math.floor(Math.random() * pool.length));
+                    document.getElementById('promoCodigo').value = out;
+                }
+            </script>
+        </div>
+
+        <!-- Listado -->
+        <div class="table-container">
+            <table>
+                <thead><tr><th>ID</th><th>Título</th><th>Tipo</th><th>Descuento</th><th>Plan</th><th>Vigencia</th><th>Estado</th><th>Usos</th><th>Acciones</th></tr></thead>
+                <tbody>
+                <?php if (empty($promos)): ?>
+                    <tr><td colspan="9" class="muted" style="text-align:center;padding:24px;">Aún no hay promociones. Crea la primera arriba.</td></tr>
+                <?php else: foreach ($promos as $pr):
+                    $ahora = time();
+                    $tsIni = strtotime($pr['fecha_inicio']);
+                    $tsFin = strtotime($pr['fecha_fin']);
+                    $sinCupo = $pr['max_usos'] !== null && (int)$pr['usos'] >= (int)$pr['max_usos'];
+                    if (!$pr['activo']) { $estadoTxt = 'Inactiva'; $estadoCls = 'badge-gray'; }
+                    elseif ($sinCupo)  { $estadoTxt = 'Sin cupo'; $estadoCls = 'badge-red'; }
+                    elseif ($ahora < $tsIni) { $estadoTxt = 'Programada'; $estadoCls = 'badge-blue'; }
+                    elseif ($ahora > $tsFin) { $estadoTxt = 'Vencida'; $estadoCls = 'badge-orange'; }
+                    else { $estadoTxt = 'Vigente'; $estadoCls = 'badge-green'; }
+                ?>
+                    <tr>
+                        <td><?= (int)$pr['id'] ?></td>
+                        <td><strong><?= htmlspecialchars($pr['titulo']) ?></strong><?= $pr['descripcion'] ? '<br><span class="muted">' . htmlspecialchars($pr['descripcion']) . '</span>' : '' ?></td>
+                        <td><?= $pr['tipo'] === 'codigo'
+                            ? '<span class="badge badge-purple">Código</span><br><code class="mono">' . htmlspecialchars($pr['codigo'] ?? '') . '</code>'
+                            : '<span class="badge badge-blue">Banner</span>' ?></td>
+                        <td><strong><?= $pr['descuento_tipo'] === 'porcentaje' ? rtrim(rtrim((string)$pr['descuento_valor'], '0'), '.') . '%' : '$' . number_format((float)$pr['descuento_valor']) . ' COP' ?></strong></td>
+                        <td><?= $pr['plan_id'] ? 'Plan #' . (int)$pr['plan_id'] : 'Todos' ?></td>
+                        <td class="muted" style="font-size:12px;"><?= date('d/m/Y H:i', $tsIni) ?><br>a <?= date('d/m/Y H:i', $tsFin) ?></td>
+                        <td><span class="badge <?= $estadoCls ?>"><?= $estadoTxt ?></span></td>
+                        <td><?= (int)$pr['usos'] ?><?= $pr['max_usos'] !== null ? ' / ' . (int)$pr['max_usos'] : '' ?></td>
+                        <td style="white-space:nowrap;">
+                            <a class="btn btn-primary" style="padding:6px 12px; font-size:12px;" href="index.php?section=promociones&edit=<?= (int)$pr['id'] ?>">Editar</a>
+                            <form method="POST" style="display:inline;" onsubmit="return confirm('¿<?= $pr['activo'] ? 'Desactivar' : 'Activar' ?> esta promoción?');">
+                                <?= admin_csrf_field() ?>
+                                <input type="hidden" name="promo_id" value="<?= (int)$pr['id'] ?>">
+                                <button type="submit" name="promo_toggle" value="1" class="btn <?= $pr['activo'] ? 'btn-danger' : 'btn-success' ?>" style="padding:6px 12px; font-size:12px;"><?= $pr['activo'] ? 'Desactivar' : 'Activar' ?></button>
+                            </form>
+                            <form method="POST" style="display:inline;" onsubmit="return confirm('¿ELIMINAR definitivamente esta promoción?');">
+                                <?= admin_csrf_field() ?>
+                                <input type="hidden" name="promo_id" value="<?= (int)$pr['id'] ?>">
+                                <button type="submit" name="promo_delete" value="1" class="btn btn-danger" style="padding:6px 12px; font-size:12px;">Eliminar</button>
+                            </form>
+                        </td>
+                    </tr>
+                <?php endforeach; endif; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php endif; ?>
+
+    <?php elseif ($section === 'soporte'):
+        // ── SOPORTE: quejas y sugerencias de los usuarios (v1.7.0) ──
+        $soporteDisponible = true;
+        $filtroEstado = (string)($_GET['estado'] ?? '');
+        $verQuejaId = (int)($_GET['view'] ?? 0);
+        $quejaDetalle = null;
+        try {
+            $estadosValidos = ['nuevo', 'en_proceso', 'resuelto', 'descartado'];
+            if ($filtroEstado !== '' && in_array($filtroEstado, $estadosValidos, true)) {
+                $stmt = $conexion->prepare("
+                    SELECT q.*, u.nombre AS user_nombre, u.email AS user_email
+                    FROM quejas_sugerencias q
+                    JOIN usuarios u ON u.id_usuario = q.user_id
+                    WHERE q.estado = :e
+                    ORDER BY q.creado_en DESC LIMIT 200
+                ");
+                $stmt->execute([':e' => $filtroEstado]);
+            } else {
+                $stmt = $conexion->prepare("
+                    SELECT q.*, u.nombre AS user_nombre, u.email AS user_email
+                    FROM quejas_sugerencias q
+                    JOIN usuarios u ON u.id_usuario = q.user_id
+                    ORDER BY q.creado_en DESC LIMIT 200
+                ");
+                $stmt->execute();
+            }
+            $quejas = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $contadorEstados = ['nuevo' => 0, 'en_proceso' => 0, 'resuelto' => 0, 'descartado' => 0];
+            foreach ($quejas as $qq) {
+                if (isset($contadorEstados[$qq['estado']])) $contadorEstados[$qq['estado']]++;
+            }
+
+            if ($verQuejaId > 0) {
+                $stmtQ = $conexion->prepare("
+                    SELECT q.*, u.nombre AS user_nombre, u.email AS user_email
+                    FROM quejas_sugerencias q
+                    JOIN usuarios u ON u.id_usuario = q.user_id
+                    WHERE q.id = :id LIMIT 1
+                ");
+                $stmtQ->execute([':id' => $verQuejaId]);
+                $quejaDetalle = $stmtQ->fetch(PDO::FETCH_ASSOC);
+            }
+        } catch (Exception $exQ) {
+            $soporteDisponible = false;
+            $quejas = [];
+            $contadorEstados = ['nuevo' => 0, 'en_proceso' => 0, 'resuelto' => 0, 'descartado' => 0];
+        }
+
+        $msgsSoporte = [
+            'queja_actualizada' => ['ok',  'Respuesta guardada. El usuario la verá en la app al instante.'],
+            'queja_error'       => ['err', 'Error de base de datos al actualizar.'],
+        ];
+        $msgKeyS = (string)($_GET['msg'] ?? '');
+        if ($msgKeyS !== '' && isset($msgsSoporte[$msgKeyS])): ?>
+            <div class="flash flash-<?= $msgsSoporte[$msgKeyS][0] ?>"><?= $msgsSoporte[$msgKeyS][1] ?></div>
+        <?php endif; ?>
+
+        <?php if (!$soporteDisponible): ?>
+            <div class="section-card">
+                <h3 class="section-title">Migración pendiente</h3>
+                <p class="muted">Ejecuta <code>backend/migrations/006_promociones_quejas.sql</code> en MySQL para habilitar esta sección.</p>
+            </div>
+        <?php else: ?>
+
+        <?php if ($quejaDetalle): ?>
+            <!-- Detalle de la queja -->
+            <div class="section-card">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; margin-bottom:16px;">
+                    <div>
+                        <h3 class="section-title" style="margin-bottom:4px;">&#128172; Ticket #<?= (int)$quejaDetalle['id'] ?> — <?= htmlspecialchars($quejaDetalle['user_nombre']) ?></h3>
+                        <p class="muted"><?= htmlspecialchars($quejaDetalle['user_email']) ?> · <?= htmlspecialchars((string)$quejaDetalle['creado_en']) ?></p>
+                    </div>
+                    <a href="index.php?section=soporte" class="btn" style="background:#e2e8f0; color:#334155;">&larr; Volver</a>
+                </div>
+                <div style="background:#f8fafc; border-radius:12px; padding:16px; margin-bottom:16px;">
+                    <p style="margin-bottom:8px;">
+                        <span class="badge badge-purple"><?= htmlspecialchars(strtoupper($quejaDetalle['tipo'])) ?></span>
+                        <?php if (!empty($quejaDetalle['asunto'])): ?><strong><?= htmlspecialchars($quejaDetalle['asunto']) ?></strong><?php endif; ?>
+                    </p>
+                    <p style="white-space:pre-wrap; line-height:1.6;"><?= htmlspecialchars($quejaDetalle['mensaje']) ?></p>
+                </div>
+                <form method="POST">
+                    <?= admin_csrf_field() ?>
+                    <input type="hidden" name="queja_id" value="<?= (int)$quejaDetalle['id'] ?>">
+                    <div class="form-group">
+                        <label>Respuesta para el estudiante (la verá en el app en "Mis envíos")</label>
+                        <textarea name="respuesta" rows="4" maxlength="2000" style="width:100%; padding:10px 14px; border:2px solid #e2e8f0; border-radius:10px; font-size:14px; font-family:inherit;" placeholder="Ej: ¡Gracias por reportarnos! Ya corregimos el error..."><?= htmlspecialchars($quejaDetalle['respuesta_admin'] ?? '') ?></textarea>
+                    </div>
+                    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                        <div class="form-group" style="margin:0;">
+                            <select name="estado">
+                                <option value="nuevo" <?= $quejaDetalle['estado'] === 'nuevo' ? 'selected' : '' ?>>Recibido</option>
+                                <option value="en_proceso" <?= $quejaDetalle['estado'] === 'en_proceso' ? 'selected' : '' ?>>En revisión</option>
+                                <option value="resuelto" <?= $quejaDetalle['estado'] === 'resuelto' ? 'selected' : '' ?>>Resuelto</option>
+                                <option value="descartado" <?= $quejaDetalle['estado'] === 'descartado' ? 'selected' : '' ?>>Cerrado</option>
+                            </select>
+                        </div>
+                        <button type="submit" name="queja_update" value="1" class="btn btn-primary">Guardar respuesta</button>
+                    </div>
+                </form>
+            </div>
+        <?php else: ?>
+            <!-- Bandeja -->
+            <div class="stats-grid" style="grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));">
+                <div class="stat-card"><div class="stat-value" style="color:#EF4444;"><?= (int)$contadorEstados['nuevo'] ?></div><div class="stat-label">Nuevos</div></div>
+                <div class="stat-card"><div class="stat-value" style="color:#F59E0B;"><?= (int)$contadorEstados['en_proceso'] ?></div><div class="stat-label">En revisión</div></div>
+                <div class="stat-card"><div class="stat-value" style="color:#22C55E;"><?= (int)$contadorEstados['resuelto'] ?></div><div class="stat-label">Resueltos</div></div>
+                <div class="stat-card"><div class="stat-value" style="color:#94A3B8;"><?= (int)$contadorEstados['descartado'] ?></div><div class="stat-label">Cerrados</div></div>
+            </div>
+            <div class="section-card" style="padding:12px 20px;">
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <a class="btn <?= $filtroEstado === '' ? 'btn-primary' : '' ?>" style="<?= $filtroEstado === '' ? '' : 'background:#e2e8f0; color:#334155;' ?>" href="index.php?section=soporte">Todos</a>
+                    <?php foreach (['nuevo' => 'Nuevos', 'en_proceso' => 'En revisión', 'resuelto' => 'Resueltos', 'descartado' => 'Cerrados'] as $estK => $estL): ?>
+                        <a class="btn <?= $filtroEstado === $estK ? 'btn-primary' : '' ?>" style="<?= $filtroEstado === $estK ? '' : 'background:#e2e8f0; color:#334155;' ?>" href="index.php?section=soporte&estado=<?= $estK ?>"><?= $estL ?></a>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead><tr><th>#</th><th>Fecha</th><th>Usuario</th><th>Tipo</th><th>Asunto / Mensaje</th><th>Estado</th><th>Respuesta</th><th></th></tr></thead>
+                    <tbody>
+                    <?php if (empty($quejas)): ?>
+                        <tr><td colspan="8" class="muted" style="text-align:center;padding:24px;">No hay mensajes todavía. Los que envíen los estudiantes desde el app aparecen aquí.</td></tr>
+                    <?php else: foreach ($quejas as $qj):
+                        $badgeEst = ['nuevo' => 'badge-red', 'en_proceso' => 'badge-yellow', 'resuelto' => 'badge-green', 'descartado' => 'badge-gray'][$qj['estado']] ?? 'badge-gray';
+                        $txtEst = ['nuevo' => 'Recibido', 'en_proceso' => 'En revisión', 'resuelto' => 'Resuelto', 'descartado' => 'Cerrado'][$qj['estado']] ?? $qj['estado'];
+                    ?>
+                        <tr>
+                            <td><?= (int)$qj['id'] ?></td>
+                            <td class="muted" style="font-size:12px;"><?= date('d/m/Y H:i', strtotime($qj['creado_en'])) ?></td>
+                            <td><strong><?= htmlspecialchars($qj['user_nombre']) ?></strong><br><span class="muted" style="font-size:12px;"><?= htmlspecialchars($qj['user_email']) ?></span></td>
+                            <td><span class="badge badge-purple"><?= htmlspecialchars(strtoupper($qj['tipo'])) ?></span></td>
+                            <td style="max-width:320px;"><strong><?= htmlspecialchars($qj['asunto'] ?? '(sin asunto)') ?></strong><br><span class="muted" style="font-size:12px;"><?= htmlspecialchars(mb_substr($qj['mensaje'], 0, 90)) ?><?= mb_strlen($qj['mensaje']) > 90 ? '...' : '' ?></span></td>
+                            <td><span class="badge <?= $badgeEst ?>"><?= $txtEst ?></span></td>
+                            <td><?= !empty($qj['respuesta_admin']) ? '<span class="badge badge-green">Sí</span>' : '<span class="badge badge-gray">No</span>' ?></td>
+                            <td><a class="btn btn-primary" style="padding:6px 12px; font-size:12px;" href="index.php?section=soporte&view=<?= (int)$qj['id'] ?>">Ver</a></td>
+                        </tr>
+                    <?php endforeach; endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
+        <?php endif; ?>
 
     <?php elseif ($section === 'ads'): ?>
         <!-- ANUNCIOS -->
@@ -796,6 +1569,175 @@ try {
                 </div>
             </div>
         </div>
+
+    <?php elseif ($section === 'colegios'): ?>
+        <!-- COLEGIOS (B2B, v1.7.0): gestión de directores -->
+        <?php
+        $colegiosAvailable = true;
+        $directores = [];
+        $colegiosDatalist = [];
+        $sugerenciaPass = '';
+        try {
+            $stmtDir = $conexion->prepare("
+                SELECT d.id, d.nombre, d.email, d.colegio, d.telefono, d.activo, d.ultimo_login,
+                       (SELECT COUNT(*) FROM usuarios u
+                         WHERE u.colegio = d.colegio AND u.tipo_usuario = 'estudiante') AS estudiantes
+                FROM directores d
+                ORDER BY d.activo DESC, d.id DESC
+            ");
+            $stmtDir->execute();
+            $directores = $stmtDir->fetchAll(PDO::FETCH_ASSOC);
+
+            $stmtCol = $conexion->prepare("
+                SELECT DISTINCT colegio
+                FROM usuarios
+                WHERE colegio IS NOT NULL AND colegio <> ''
+                ORDER BY colegio
+            ");
+            $stmtCol->execute();
+            $colegiosDatalist = $stmtCol->fetchAll(PDO::FETCH_COLUMN);
+
+            // Sugerencia de contraseña segura (10 aleatorios + 2 fijos = 12)
+            $pool = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+            for ($i = 0; $i < 10; $i++) {
+                $sugerenciaPass .= $pool[random_int(0, strlen($pool) - 1)];
+            }
+            $sugerenciaPass .= '!7a';
+        } catch (Exception $e) {
+            $colegiosAvailable = false;
+        }
+        ?>
+        <?php if (!$colegiosAvailable): ?>
+            <div class="section-card">
+                <h3 class="section-title">Sección Colegios no disponible</h3>
+                <p class="muted">La tabla <code>directores</code> no existe todavía.
+                Ejecuta la migración: <code>mysql -u jnegretep -p prepsaber &lt; backend/migrations/005_directores.sql</code></p>
+            </div>
+        <?php else: ?>
+
+            <?php
+            // Mensajes flash por querystring
+            $msgs = [
+                'director_creado'   => ['ok',  'Director creado correctamente. Comparte las credenciales de forma segura.'],
+                'email_duplicado'   => ['err', 'Ya existe un director con ese correo.'],
+                'datos_invalidos'   => ['err', 'Datos inválidos: nombre, correo y colegio son obligatorios; la contraseña debe tener al menos 8 caracteres.'],
+                'estado_actualizado'=> ['ok',  'Estado del director actualizado.'],
+                'error_bd'          => ['err', 'Error de base de datos. Revisa el log del servidor.'],
+            ];
+            $msgKey = (string)($_GET['msg'] ?? '');
+            if ($msgKey !== '' && isset($msgs[$msgKey])): ?>
+                <div class="flash flash-<?= $msgs[$msgKey][0] ?>"><?= $msgs[$msgKey][1] ?></div>
+            <?php endif; ?>
+
+            <?php if (!empty($_SESSION['admin_flash_pass'])):
+                $flashPass = $_SESSION['admin_flash_pass'];
+                unset($_SESSION['admin_flash_pass']); // se muestra UNA sola vez ?>
+                <div class="section-card" style="border: 2px solid #22C55E;">
+                    <h3 class="section-title">&#128273; Contraseña restablecida (Director #<?= (int)$flashPass['id'] ?>)</h3>
+                    <p style="margin-bottom: 12px;">Guarda esta contraseña ahora — <strong>no volverá a mostrarse</strong>:</p>
+                    <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                        <code class="mono" id="passGenerada" style="font-size: 18px; background: #f1f5f9; padding: 10px 16px; border-radius: 8px;"><?= htmlspecialchars($flashPass['pass'], ENT_QUOTES, 'UTF-8') ?></code>
+                        <button type="button" class="btn btn-primary" id="btnCopiarPass">Copiar</button>
+                    </div>
+                    <script>
+                        document.getElementById('btnCopiarPass').addEventListener('click', function () {
+                            var texto = document.getElementById('passGenerada').textContent;
+                            function ok() { var b = document.getElementById('btnCopiarPass'); b.textContent = '¡Copiada!'; b.disabled = true; }
+                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                navigator.clipboard.writeText(texto).then(ok);
+                            } else {
+                                var tmp = document.createElement('input');
+                                document.body.appendChild(tmp);
+                                tmp.value = texto;
+                                tmp.select();
+                                document.execCommand('copy');
+                                document.body.removeChild(tmp);
+                                ok();
+                            }
+                        });
+                    </script>
+                </div>
+            <?php endif; ?>
+
+            <!-- Listado de directores -->
+            <div class="table-container">
+                <table>
+                    <thead><tr><th>ID</th><th>Nombre</th><th>Email</th><th>Colegio</th><th>Estudiantes</th><th>Estado</th><th>Último login</th><th>Acciones</th></tr></thead>
+                    <tbody>
+                    <?php if (!$directores): ?>
+                        <tr><td colspan="8" class="muted" style="text-align:center;padding:24px;">Aún no hay directores. Crea el primero con el formulario de abajo.</td></tr>
+                    <?php else: foreach ($directores as $d): ?>
+                        <tr>
+                            <td><?= (int)$d['id'] ?></td>
+                            <td><?= htmlspecialchars($d['nombre']) ?></td>
+                            <td><?= htmlspecialchars($d['email']) ?></td>
+                            <td><?= htmlspecialchars($d['colegio']) ?></td>
+                            <td><strong><?= (int)$d['estudiantes'] ?></strong></td>
+                            <td><?= ((int)$d['activo'] === 1) ? '<span class="badge badge-green">Activo</span>' : '<span class="badge badge-red">Inactivo</span>' ?></td>
+                            <td><?= $d['ultimo_login'] ?? 'Nunca' ?></td>
+                            <td style="white-space:nowrap;">
+                                <form method="POST" style="display:inline;">
+                                    <?= admin_csrf_field() ?>
+                                    <input type="hidden" name="toggle_director" value="1">
+                                    <input type="hidden" name="director_id" value="<?= (int)$d['id'] ?>">
+                                    <button type="submit" class="btn <?= ((int)$d['activo'] === 1) ? 'btn-danger' : 'btn-success' ?>" style="padding:6px 12px;font-size:12px;"><?= ((int)$d['activo'] === 1) ? 'Desactivar' : 'Activar' ?></button>
+                                </form>
+                                <form method="POST" style="display:inline;" onsubmit="return confirm('¿Restablecer la contraseña de este director?');">
+                                    <?= admin_csrf_field() ?>
+                                    <input type="hidden" name="reset_director_pass" value="1">
+                                    <input type="hidden" name="director_id" value="<?= (int)$d['id'] ?>">
+                                    <button type="submit" class="btn btn-primary" style="padding:6px 12px;font-size:12px;">Reset contraseña</button>
+                                </form>
+                            </td>
+                        </tr>
+                    <?php endforeach; endif; ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Crear director -->
+            <div class="section-card">
+                <h3 class="section-title">&#10133; Crear director de colegio</h3>
+                <p class="muted" style="margin-bottom:16px;">
+                    El director solo verá los estudiantes cuyo colegio coincida exactamente con el asignado.
+                    Podrá consultar reportes de simulacros y activar/desactivar estudiantes de su colegio
+                    (ingresa en <code>backend/director/login.php</code>).
+                </p>
+                <form method="POST">
+                    <?= admin_csrf_field() ?>
+                    <input type="hidden" name="crear_director" value="1">
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>Nombre completo</label>
+                            <input type="text" name="nombre" required maxlength="120">
+                        </div>
+                        <div class="form-group">
+                            <label>Email</label>
+                            <input type="email" name="email" required maxlength="190">
+                        </div>
+                        <div class="form-group">
+                            <label>Colegio (selecciona uno existente o escribe uno nuevo)</label>
+                            <input type="text" name="colegio" list="listaColegios" required maxlength="190">
+                            <datalist id="listaColegios">
+                                <?php foreach ($colegiosDatalist as $col): ?>
+                                    <option value="<?= htmlspecialchars((string)$col) ?>"></option>
+                                <?php endforeach; ?>
+                            </datalist>
+                        </div>
+                        <div class="form-group">
+                            <label>Teléfono (opcional)</label>
+                            <input type="tel" name="telefono" maxlength="30">
+                        </div>
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <label>Contraseña (sugerencia segura autogenerada — puedes cambiarla, mínimo 8 caracteres)</label>
+                            <input type="text" name="password" value="<?= htmlspecialchars($sugerenciaPass, ENT_QUOTES, 'UTF-8') ?>" minlength="8" required autocomplete="off" class="mono">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Crear director</button>
+                </form>
+            </div>
+
+        <?php endif; ?>
 
     <?php endif; ?>
 </div>

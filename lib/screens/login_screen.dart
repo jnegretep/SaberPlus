@@ -886,7 +886,7 @@ class _LoginScreenState extends State<LoginScreen>
                   const SizedBox(height: 30),
 
                   Text(
-                    'PrepSaber © 2024',
+                    'SaberPlus © 2026',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: AppColors.textDisabled,

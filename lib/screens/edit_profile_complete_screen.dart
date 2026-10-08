@@ -1,5 +1,7 @@
 import 'dart:convert';
 import '../core/io_shim/io_shim.dart'; // v1.6.0: dart:io con stub para web
+import '../core/io_shim/platform_bridge.dart'; // v1.6.1: File/Image multiplataforma
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -145,14 +147,18 @@ Future<void> _pickImage() async {
                         color: AppColors.primaryLight,
                         onTap: () => Navigator.pop(context, ImageSource.gallery),
                       ),
-                      const SizedBox(height: 10),
-                      _buildBottomSheetOption(
-                        icon: Icons.camera_alt_rounded,
-                        title: 'Cámara',
-                        subtitle: 'Tomar una foto',
-                        color: AppColors.successDark,
-                        onTap: () => Navigator.pop(context, ImageSource.camera),
-                      ),
+                      // v1.6.1: la cámara no está soportada en web — ocultar
+                      // la opción para no ofrecer un flujo que fallaría.
+                      if (!kIsWeb) ...[
+                        const SizedBox(height: 10),
+                        _buildBottomSheetOption(
+                          icon: Icons.camera_alt_rounded,
+                          title: 'Cámara',
+                          subtitle: 'Tomar una foto',
+                          color: AppColors.successDark,
+                          onTap: () => Navigator.pop(context, ImageSource.camera),
+                        ),
+                      ],
                       const SizedBox(height: 10),
                       _buildBottomSheetOption(
                         icon: Icons.face_rounded,
@@ -211,13 +217,35 @@ Future<void> _pickImage() async {
   );
 
   if (source != null) {
-    final pickedFile = await _picker.pickImage(source: source, imageQuality: 70);
-    if (pickedFile != null) {
-      setState(() {
-        _selectedImage = File(pickedFile.path);
-        _selectedAvatarAsset = null;
-        _currentAvatarUrl = null;
-      });
+    try {
+      final pickedFile =
+          await _picker.pickImage(source: source, imageQuality: 70);
+      if (pickedFile != null) {
+        setState(() {
+          // v1.6.1: File multiplataforma — en móvil es el File real de
+          // dart:io (idéntico a antes); en web conserva el XFile para
+          // poder mostrar y subir la imagen.
+          _selectedImage = fileFromXFile(pickedFile);
+          _selectedAvatarAsset = null;
+          _currentAvatarUrl = null;
+        });
+      }
+    } catch (e) {
+      // En web la cámara no está soportada por image_picker; cualquier
+      // otro fallo del selector tampoco debe bloquear la edición.
+      debugPrint('⚠️ ImagePicker error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              kIsWeb
+                  ? 'La cámara no está disponible en la versión web. Usa la galería o un avatar.'
+                  : 'No se pudo abrir el selector de imágenes.',
+            ),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
   }
 }
@@ -479,6 +507,28 @@ Future<void> _pickImage() async {
     try {
       if (_selectedImage != null) {
         final bytes = await _selectedImage!.readAsBytes();
+
+        // v1.6.1: en móvil image_picker comprime (imageQuality: 70), pero en
+        // web NO comprime — una foto puede pesar varios MB y el base64 (+33%)
+        // exceder los límites del servidor. Se guarda sin cambiar la foto y
+        // se avisa al usuario en vez de fallar con error del servidor.
+        if (bytes.length > 4 * 1024 * 1024) {
+          debugPrint(
+              '⚠️ Avatar demasiado grande: ${bytes.length} bytes — se omite');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'La foto es muy grande (${(bytes.length / 1024 / 1024).toStringAsFixed(1)} MB). '
+                  'Elige una más ligera o usa un avatar prediseñado.',
+                ),
+                backgroundColor: AppColors.error,
+              ),
+            );
+          }
+          return null;
+        }
+
         return base64Encode(bytes);
       } else if (_selectedAvatarAsset != null) {
         final bytes = await DefaultAssetBundle.of(context).load(_selectedAvatarAsset!);
@@ -767,8 +817,10 @@ Future<void> _pickImage() async {
                                 children: [
                                   if (_selectedImage != null)
                                     ClipOval(
-                                      child: Image.file(
-                                        _selectedImage!,
+                                      child: Image(
+                                        // v1.6.1: FileImage en móvil,
+                                        // NetworkImage (blob: URL) en web.
+                                        image: fileImageProvider(_selectedImage!),
                                         width: 100,
                                         height: 100,
                                         fit: BoxFit.cover,

@@ -714,6 +714,7 @@ Future<List<Plan>> getActivePlans() async {
 
 Future<Map<String, dynamic>> createWompiPayment({
   required int planId,  // 🔴 CAMBIO: Ahora recibe planId, no planCode
+  String? promoCode,    // ✅ v1.7.0: código promocional opcional (web/Wompi)
 }) async {
   final token = auth.token;
 
@@ -732,6 +733,8 @@ Future<Map<String, dynamic>> createWompiPayment({
         },
         body: json.encode({
           'plan_id': planId,  // 🔴 CAMBIO: Enviar plan_id en lugar de plan_code
+          if (promoCode != null && promoCode.trim().isNotEmpty)
+            'promo_code': promoCode.trim(), // ✅ v1.7.0
         }),
       )
       .timeout(const Duration(seconds: 30));
@@ -752,6 +755,97 @@ Future<Map<String, dynamic>> createWompiPayment({
 
   if (data['status'] != 'ok') {
     throw Exception(data['msg'] ?? 'Error al crear el pago');
+  }
+
+  return data;
+}
+
+/// ✅ v1.7.0 — Promociones activas (banner + descuento) para la pantalla
+/// Premium. Se consulta cada vez que se abre la pantalla → lo que el
+/// admin crea en /admin → Promociones aparece en el app AL INSTANTE.
+Future<List<Map<String, dynamic>>> getActivePromos() async {
+  final url = Uri.parse('$baseUrl/get_active_promos.php');
+
+  final response = await http
+      .get(url)
+      .timeout(const Duration(seconds: 12));
+
+  if (response.statusCode != 200) {
+    // Nunca rompe la pantalla: sin promos → lista vacía.
+    return [];
+  }
+
+  try {
+    final data = json.decode(response.body);
+    if (data is Map && data['status'] == 'ok' && data['promos'] is List) {
+      return (data['promos'] as List)
+          .whereType<Map<String, dynamic>>()
+          .toList();
+    }
+  } catch (_) {}
+  return [];
+}
+
+/// ✅ v1.7.0 — Google Play Billing: verifica una compra de Google Play
+/// contra el backend (verify_play_purchase.php), que la valida server-side
+/// con la Google Play Developer API antes de activar premium.
+/// [purchaseToken] es verificationData.serverVerificationData (Android) y
+/// [orderId] es purchaseID (orderId de la factura de Play).
+Future<Map<String, dynamic>> verifyPlayPurchase({
+  required String productId,
+  required String purchaseToken,
+  String? orderId,
+}) async {
+  final token = auth.token;
+
+  if (token == null) {
+    throw Exception('Usuario no autenticado');
+  }
+
+  final url = Uri.parse('$baseUrl/verify_play_purchase.php');
+
+  final response = await http
+      .post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({
+          'product_id': productId,
+          'purchase_token': purchaseToken,
+          if (orderId != null && orderId.isNotEmpty) 'order_id': orderId,
+        }),
+      )
+      .timeout(const Duration(seconds: 20));
+
+  if (response.body.isEmpty) {
+    throw Exception('Respuesta vacía del servidor');
+  }
+
+  // Extraer el mensaje del backend también cuando el HTTP no es 200
+  // (401/402/403/503 vienen con {status:'error', msg:'...'} en español).
+  dynamic data;
+  try {
+    data = json.decode(response.body);
+  } catch (_) {
+    data = null;
+  }
+
+  if (response.statusCode != 200) {
+    throw Exception(
+      data is Map && data['msg'] != null
+          ? data['msg'].toString()
+          : 'Error HTTP ${response.statusCode}',
+    );
+  }
+
+  if (data is! Map<String, dynamic>) {
+    throw Exception('Formato de respuesta inválido');
+  }
+
+  if (data['status'] != 'ok') {
+    throw Exception(data['msg'] ?? 'Error al verificar la compra');
   }
 
   return data;

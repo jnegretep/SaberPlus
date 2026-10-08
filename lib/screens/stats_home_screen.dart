@@ -9,9 +9,18 @@ import '../config/navigation.dart';
 import 'area_trend_screen.dart';
 import 'comparativas_screen.dart';
 import 'ranking_screen.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../core/theme/app_colors.dart';
+
+/// Excepción de la IA con mensaje listo para mostrar al usuario.
+class _AiException implements Exception {
+  final String message;
+  const _AiException(this.message);
+  @override
+  String toString() => message;
+}
 
 class StatsHomeScreen extends StatefulWidget {
   const StatsHomeScreen({super.key});
@@ -47,7 +56,6 @@ class _StatsHomeScreenState extends State<StatsHomeScreen> {
     try {
       final auth = context.read<AuthService>();
       final moodleIdValue = auth.moodleId ?? 1;
-
       final areasOrdenadas = stats.areas.entries
           .where((e) => e.value != null)
           .toList()
@@ -68,25 +76,31 @@ class _StatsHomeScreenState extends State<StatsHomeScreen> {
 
       debugPrint('[IA Stats] Enviando análisis global para moodle_id: $moodleIdValue');
 
-      final response = await http.post(
-        Uri.parse(Env.aiApiUrl),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'moodle_id': moodleIdValue,
-          'mensaje': 'Analiza mi rendimiento general y dame un plan de acción personalizado para mejorar en todas las áreas.',
-          'area_enfoque': 'global',
-          'area_stats': {
-            'promedio_global': stats.promedioGlobal?.toStringAsFixed(1) ?? '0',
-            'simulacros_realizados': stats.simulacrosRealizados,
-            'tiempo_promedio_seg': stats.tiempoPromedioSeg ?? 0,
-            'mejor_area': _labelAreaShort(mejorArea),
-            'mejor_puntaje': mejorPuntaje?.toStringAsFixed(1) ?? '0',
-            'peor_area': _labelAreaShort(peorArea),
-            'peor_puntaje': peorPuntaje?.toStringAsFixed(1) ?? '0',
-            'nivel_progreso': nivelProgreso,
-          }
-        }),
-      );
+      final response = await http
+          .post(
+            Uri.parse(Env.aiApiUrl),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ${auth.token}',
+            },
+            body: jsonEncode({
+              'moodle_id': moodleIdValue,
+              'mensaje':
+                  'Analiza mi rendimiento general y dame un plan de acción personalizado para mejorar en todas las áreas.',
+              'area_enfoque': 'global',
+              'area_stats': {
+                'promedio_global': stats.promedioGlobal?.toStringAsFixed(1) ?? '0',
+                'simulacros_realizados': stats.simulacrosRealizados,
+                'tiempo_promedio_seg': stats.tiempoPromedioSeg ?? 0,
+                'mejor_area': _labelAreaShort(mejorArea),
+                'mejor_puntaje': mejorPuntaje?.toStringAsFixed(1) ?? '0',
+                'peor_area': _labelAreaShort(peorArea),
+                'peor_puntaje': peorPuntaje?.toStringAsFixed(1) ?? '0',
+                'nivel_progreso': nivelProgreso,
+              }
+            }),
+          )
+          .timeout(const Duration(seconds: 60));
 
       debugPrint('[IA Stats] Respuesta código: ${response.statusCode}');
 
@@ -107,21 +121,55 @@ class _StatsHomeScreenState extends State<StatsHomeScreen> {
             _aiRecommendation = data['respuesta'];
           });
         } else {
-          throw Exception(data['mensaje'] ?? 'Error desconocido de la IA');
+          throw _AiException(_aiErrorMessage(data));
         }
+      } else if (response.statusCode == 401) {
+        throw const _AiException(
+            'Tu sesión expiró. Cierra sesión y vuelve a entrar.');
       } else {
-        throw Exception('Error HTTP ${response.statusCode}');
+        throw const _AiException('Error de conexión. Revisa tu internet.');
       }
     } catch (e) {
       debugPrint('[IA Stats] Error: $e');
       if (mounted) {
+        final mensaje = e is _AiException
+            ? e.message
+            : e is TimeoutException
+                ? 'El tutor se quedó pensando demasiado. Inténtalo otra vez.'
+                : 'Error de conexión. Revisa tu internet.';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('⚠️ Error con la IA: ${e.toString()}')),
+          SnackBar(
+            content: Text('⚠️ $mensaje'),
+            duration: const Duration(seconds: 6),
+            action: SnackBarAction(
+              label: 'Reintentar',
+              onPressed: () => _fetchAIAnalysis(stats),
+            ),
+          ),
         );
       }
     } finally {
       if (mounted) setState(() => _isLoadingAI = false);
     }
+  }
+
+  /// Mapea el {codigo, error} del backend a un mensaje claro para el usuario.
+  /// El backend responde HTTP 200 con exito:false y un `codigo`:
+  /// SIN_SALDO / KEY_INVALIDA / RATE_LIMIT / TIMEOUT / ERROR_IA.
+  String _aiErrorMessage(dynamic data) {
+    final codigo = data['codigo'] as String? ?? '';
+    switch (codigo) {
+      case 'SIN_SALDO':
+      case 'KEY_INVALIDA':
+        return 'El tutor IA está en mantenimiento. Ya avisamos al equipo 🛠️';
+      case 'RATE_LIMIT':
+        return 'Vas muy rápido 😅 espera unos segundos e inténtalo de nuevo.';
+      case 'TIMEOUT':
+        return 'El tutor se quedó pensando demasiado. Inténtalo otra vez.';
+    }
+    final error = data['error'] as String?;
+    if (error != null && error.isNotEmpty) return error;
+    return 'No pudimos generar el análisis ahora. Intenta de nuevo.';
   }
 
   Widget _buildLoading() {

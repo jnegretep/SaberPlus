@@ -1,0 +1,38 @@
+═══════════════════════════════════════════════════════════════
+ SaberPlus v1.7.0 — Paquete de actualización (50 archivos)
+═══════════════════════════════════════════════════════════════
+
+CONTENIDO: exactamente los archivos creados/modificados en la
+versión 1.7.0 (commit 14978ee). Conserva la estructura de carpetas.
+
+── CÓMO APLICAR ──
+1. Copia TODO el contenido de esta carpeta sobre tu proyecto
+   (reemplaza los archivos existentes cuando pregunte).
+2. En la raíz del proyecto ejecuta:
+      flutter clean
+      flutter pub get
+   (share_plus sube a ^10 e in_app_purchase ^3 se instalan solos)
+3. Backend: sube los archivos de backend/ a tu servidor y ejecuta
+   las 3 migraciones en MySQL (en orden):
+      backend/migrations/004_play_billing.sql
+      backend/migrations/005_directores.sql
+      backend/migrations/006_promociones_quejas.sql
+4. Lee CAMBIOS_v1.7.0.md → tiene el checklist completo de
+   despliegue y puesta en marcha (Play Billing, directores,
+   promociones, soporte, IA).
+
+── LO MÁS IMPORTANTE ──
+• IA arreglada: si aún falla, abre backend/admin/check_ia.php →
+  casi seguro es SALDO de DeepSeek (recargar en platform.deepseek.com)
+• Panel de colegios: admin → Colegios → crear director →
+  el director entra a /backend/director/
+• Promociones: admin → Promociones → crear → aparece en el app
+  AL INSTANTE (sin publicar nueva versión)
+• Play Billing: sigue docs/PLAY_BILLING_SETUP.md cuando quieras
+  activar la compra en Android (mientras tanto el app degrada
+  elegante y la web sigue vendiendo con Wompi)
+• Ajusta los handles de redes sociales reales en:
+  lib/core/constants/app_constants.dart
+
+Verificación estática ejecutada: 6 scripts PASS.
+Recuerda correr "flutter analyze" en tu PC antes del release.

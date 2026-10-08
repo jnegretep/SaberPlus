@@ -12,7 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// ConfiguraciÃ³n de error reporting
+// Configuración de error reporting
 error_reporting(E_ALL);
 ini_set('display_errors', '0');
 ini_set('log_errors', '1');
@@ -20,7 +20,7 @@ ini_set('log_errors', '1');
 require __DIR__ . '/includes/conexion.php';
 require __DIR__ . '/includes/moodle.php';
 
-// FunciÃ³n helper para respuestas JSON consistentes
+// Función helper para respuestas JSON consistentes
 function respond($code, $data) {
     $json = json_encode($data, JSON_UNESCAPED_UNICODE);
     while (ob_get_level() > 0) ob_end_clean();
@@ -32,13 +32,13 @@ function respond($code, $data) {
     exit;
 }
 
-// FunciÃ³n para manejar errores de Moodle de manera elegante
+// Función para manejar errores de Moodle de manera elegante
 function handleMoodleError($operation, $e) {
     $errorMsg = $e->getMessage();
     
-    // Si es error de duplicado, no es crÃ­tico
+    // Si es error de duplicado, no es crítico
     if (strpos($errorMsg, 'Duplicate entry') !== false) {
-        error_log("[set_password][INFO] $operation: Elemento ya existe (no crÃ­tico) - " . $errorMsg);
+        error_log("[set_password][INFO] $operation: Elemento ya existe (no crítico) - " . $errorMsg);
         return false;
     }
     
@@ -49,8 +49,8 @@ function handleMoodleError($operation, $e) {
         return false;
     }
     
-    // Otros errores son crÃ­ticos
-    error_log("[set_password][ERROR] $operation: Error crÃ­tico - " . $errorMsg);
+    // Otros errores son críticos
+    error_log("[set_password][ERROR] $operation: Error crítico - " . $errorMsg);
     return true;
 }
 
@@ -60,14 +60,14 @@ try {
     $data = json_decode($input, true);
     
     if (json_last_error() !== JSON_ERROR_NONE) {
-        error_log("[set_password] JSON invÃ¡lido: " . json_last_error_msg());
-        respond(400, ['status' => 'error', 'msg' => 'JSON invÃ¡lido']);
+        error_log("[set_password] JSON inválido: " . json_last_error_msg());
+        respond(400, ['status' => 'error', 'msg' => 'JSON inválido']);
     }
 
     $email = strtolower(trim($data['email'] ?? ''));
     $userId = $data['user_id'] ?? null;
     $password = $data['password'] ?? '';
-    $resetToken = $data['reset_token'] ?? null; // ?? RECUPERACIÃ“N
+    $resetToken = $data['reset_token'] ?? null; // ?? RECUPERACIÓN
 
     if (empty($email) || empty($userId) || empty($password)) {
         error_log("[set_password] Datos incompletos");
@@ -75,18 +75,13 @@ try {
     }
 
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        error_log("[set_password] Email invÃ¡lido: $email");
-        respond(400, ['status' => 'error', 'msg' => 'Email invÃ¡lido']);
+        error_log("[set_password] Email inválido: $email");
+        respond(400, ['status' => 'error', 'msg' => 'Email inválido']);
     }
 
     // ======== Verificar usuario local ========
-    // âš ï¸ SEGURIDAD (fix 2026-09): el modo registro (sin reset_token) SOLO puede
-    // usarse para la configuraciÃ³n INICIAL de contraseÃ±a de una cuenta reciÃ©n
-    // verificada que TODAVÃA NO tiene contraseÃ±a. Una cuenta con contraseÃ±a
-    // establecida solo puede cambiarse con reset_token o sesiÃ³n autenticada.
     $stmt = $conexion->prepare("
-        SELECT id_usuario, email_verificado, avatar_path, moodle_id,
-               (contrasena_hash IS NULL OR contrasena_hash = '') AS sin_contrasena
+        SELECT id_usuario, email_verificado, avatar_path, moodle_id
         FROM usuarios 
         WHERE email = ? AND id_usuario = ?
         LIMIT 1
@@ -99,10 +94,10 @@ try {
         respond(404, ['status' => 'error', 'msg' => 'Usuario no encontrado']);
     }
 
-    // ?? RECUPERACIÃ“N: validar token si viene
+    // ?? RECUPERACIÓN: validar token si viene
     if (!empty($resetToken)) {
         if (strlen($resetToken) !== 6 || !ctype_digit($resetToken)) {
-            respond(400, ['status' => 'error', 'msg' => 'CÃ³digo de recuperaciÃ³n invÃ¡lido']);
+            respond(400, ['status' => 'error', 'msg' => 'Código de recuperación inválido']);
         }
 
         $stmt = $conexion->prepare("
@@ -115,33 +110,28 @@ try {
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$row) {
-            respond(400, ['status' => 'error', 'msg' => 'CÃ³digo invÃ¡lido']);
+            respond(400, ['status' => 'error', 'msg' => 'Código inválido']);
         }
 
         if (strtotime($row['expires_at']) < time()) {
-            respond(400, ['status' => 'error', 'msg' => 'CÃ³digo expirado']);
+            respond(400, ['status' => 'error', 'msg' => 'Código expirado']);
         }
 
-        error_log("[set_password] Token de recuperaciÃ³n validado para user_id={$user['id_usuario']}");
+        error_log("[set_password] Token de recuperación validado para user_id={$user['id_usuario']}");
     } else {
-        // ======== MODO REGISTRO: exigir email verificado + contraseÃ±a aÃºn NO establecida ========
+        // ======== MODO REGISTRO: exigir email verificado ========
         if ($user['email_verificado'] != 1) {
             error_log("[set_password] Correo no verificado para user_id={$user['id_usuario']}");
-            respond(400, ['status' => 'error', 'msg' => 'Debe verificar el correo antes de establecer la contraseÃ±a']);
-        }
-        if (!$user['sin_contrasena']) {
-            // La cuenta YA tiene contraseÃ±a: sin reset_token vÃ¡lido no se permite sobreescribirla.
-            error_log("[set_password][SEGURIDAD] Intento de sobreescribir contraseÃ±a existente sin reset_token: user_id={$user['id_usuario']}");
-            respond(403, ['status' => 'error', 'msg' => 'Esta cuenta ya tiene una contraseÃ±a. Usa \'OlvidÃ© mi contraseÃ±a\' para cambiarla.']);
+            respond(400, ['status' => 'error', 'msg' => 'Debe verificar el correo antes de establecer la contraseña']);
         }
     }
 
-    // ======== Validar fortaleza de contraseÃ±a ========
+    // ======== Validar fortaleza de contraseña ========
     if (!preg_match('/^(?=.*[A-Z])(?=.*\d).{8,}$/', $password)) {
-        error_log("[set_password] ContraseÃ±a dÃ©bil para user_id={$user['id_usuario']}");
+        error_log("[set_password] Contraseña débil para user_id={$user['id_usuario']}");
         respond(400, [
             'status' => 'error', 
-            'msg' => 'La contraseÃ±a debe tener mÃ­nimo 8 caracteres, una mayÃºscula y un nÃºmero'
+            'msg' => 'La contraseña debe tener mínimo 8 caracteres, una mayúscula y un número'
         ]);
     }
 
@@ -150,13 +140,13 @@ try {
     $upd = $conexion->prepare("UPDATE usuarios SET contrasena_hash = ? WHERE id_usuario = ?");
     $upd->execute([$hash, $user['id_usuario']]);
     
-    error_log("[set_password] ContraseÃ±a local guardada para user_id={$user['id_usuario']}");
+    error_log("[set_password] Contraseña local guardada para user_id={$user['id_usuario']}");
 
-    // ?? RECUPERACIÃ“N: invalidar token (uso Ãºnico)
+    // ?? RECUPERACIÓN: invalidar token (uso único)
     if (!empty($resetToken)) {
         $del = $conexion->prepare("DELETE FROM password_resets WHERE user_id = ?");
         $del->execute([$user['id_usuario']]);
-        error_log("[set_password] Token de recuperaciÃ³n eliminado para user_id={$user['id_usuario']}");
+        error_log("[set_password] Token de recuperación eliminado para user_id={$user['id_usuario']}");
     }
 
     // Inicializar array para tracking de operaciones
@@ -188,7 +178,7 @@ try {
         $username = $u['moodle_username'] ?? preg_replace('/[^a-z0-9._-]/i', '', strtolower($u['email']));
         $telefonoLocal = isset($u['telefono']) ? trim($u['telefono']) : '';
 
-        error_log("[set_password] Iniciando sincronizaciÃ³n Moodle para {$u['email']}");
+        error_log("[set_password] Iniciando sincronización Moodle para {$u['email']}");
 
         // 1. Buscar si ya existe en Moodle por email
         try {
@@ -255,9 +245,9 @@ try {
             }
             
         } catch (Exception $e) {
-            $isCritical = handleMoodleError("CreaciÃ³n/actualizaciÃ³n usuario", $e);
+            $isCritical = handleMoodleError("Creación/actualización usuario", $e);
             if ($isCritical) {
-                error_log("[set_password] Error crÃ­tico en Moodle, continuando sin moodle_id");
+                error_log("[set_password] Error crítico en Moodle, continuando sin moodle_id");
             }
         }
 
@@ -274,7 +264,7 @@ try {
                 error_log("[set_password] Rol global asignado");
                 $moodleOperations['role_assigned'] = true;
             } catch (Exception $e) {
-                handleMoodleError("AsignaciÃ³n de rol global", $e);
+                handleMoodleError("Asignación de rol global", $e);
             }
         }
 
@@ -301,7 +291,7 @@ try {
                     $moodleOperations['courses_enrolled'] += count($batch);
                     error_log("[set_password] Lote $batchIndex matriculado: " . count($batch) . " cursos");
                 } catch (Exception $e) {
-                    handleMoodleError("MatrÃ­cula lote $batchIndex", $e);
+                    handleMoodleError("Matrícula lote $batchIndex", $e);
                 }
                 
                 if ($batchIndex < count($batches) - 1) {
@@ -347,7 +337,7 @@ try {
                         $moodleOperations['avatar_updated'] = true;
                     }
                 } catch (Exception $e) {
-                    handleMoodleError("ActualizaciÃ³n de avatar", $e);
+                    handleMoodleError("Actualización de avatar", $e);
                 }
             }
         }
@@ -357,7 +347,7 @@ try {
         $moodleOperations['user_created_updated'] = true;
     }
 
-// ======== ACTUALIZAR CONTRASEÃ‘A EN MOODLE ========
+// ======== ACTUALIZAR CONTRASEÑA EN MOODLE ========
 try {
     $mc = getMoodleClient();
 
@@ -368,18 +358,18 @@ try {
         ]]
     ]);
 
-    error_log("[set_password] ContraseÃ±a actualizada en Moodle para moodle_id={$moodleId}");
+    error_log("[set_password] Contraseña actualizada en Moodle para moodle_id={$moodleId}");
     $moodleOperations['password_updated'] = true;
 
 } catch (Exception $e) {
-    handleMoodleError("ActualizaciÃ³n de contraseÃ±a Moodle", $e);
+    handleMoodleError("Actualización de contraseña Moodle", $e);
 }
 
 
     // ======== Respuesta exitosa ========
     $response = [
         'status' => 'ok',
-        'msg' => 'ContraseÃ±a establecida exitosamente',
+        'msg' => 'Contraseña establecida exitosamente',
         'user_id' => $user['id_usuario'],
         'moodle_id' => $moodleId ?? null,
     ];
@@ -388,7 +378,7 @@ try {
         $response['moodle_operations'] = $moodleOperations;
         $response['msg'] .= ' y sincronizado con Moodle';
     } else {
-        $response['msg'] .= ' (sincronizaciÃ³n con Moodle pendiente)';
+        $response['msg'] .= ' (sincronización con Moodle pendiente)';
     }
     
     respond(200, $response);
@@ -400,6 +390,6 @@ try {
     respond(500, [
         'status' => 'error',
         'msg' => 'Error interno del servidor',
-        'debug' => (isset($_ENV['APP_ENV']) && $_ENV['APP_ENV'] === 'development') ? $e->getMessage() : null
+        'debug' => $_ENV['APP_ENV'] === 'development' ? $e->getMessage() : null
     ]);
 }

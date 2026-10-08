@@ -41,7 +41,7 @@ error_log("[LOGIN] Intento de login para: $email");
 
 // 2. Buscar usuario local
 $stmt = $conexion->prepare("
-    SELECT id_usuario, tipo_usuario, moodle_username, email_verificado
+    SELECT id_usuario, tipo_usuario, moodle_username, email_verificado, activo
     FROM usuarios 
     WHERE email = :email 
     LIMIT 1
@@ -55,6 +55,15 @@ $moodleUsername = null;
 $fullName = '';
 
 if ($user) {
+    // B2B: cuenta desactivada por el director de su colegio → bloquear acceso
+    if ((int)($user['activo'] ?? 1) === 0) {
+        error_log("[LOGIN] Cuenta desactivada (activo=0): $email");
+        http_response_code(403);
+        exit(json_encode([
+            'status' => 'error',
+            'msg' => 'Tu cuenta fue desactivada por tu colegio. Contacta al director.'
+        ], JSON_UNESCAPED_UNICODE));
+    }
     $idUsuario = (int)$user['id_usuario'];
     $tipoUsuario = $user['tipo_usuario'];
     $moodleUsername = trim((string)$user['moodle_username']);

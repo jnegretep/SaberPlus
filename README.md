@@ -39,10 +39,10 @@ flutter pub get
 
 # Opción A (recomendada): configuración en compilación, sin .env en el APK
 flutter run \
-  --dart-define=API_BASE_URL=https://TU_SERVIDOR/api/prepsaber/backend \
-  --dart-define=AVATAR_BASE_URL=https://TU_SERVIDOR/api/prepsaber/backend/uploads/avatars/ \
-  --dart-define=DEFAULT_AVATAR_URL=https://TU_SERVIDOR/api/prepsaber/backend/uploads/avatars/default_avatar.png \
-  --dart-define=AI_API_URL=https://TU_SERVIDOR/api/prepsaber/backend/api_saber_plus_ia.php
+  --dart-define=API_BASE_URL=https://corpoinstel.edu.co/api/prepsaber/backend \
+  --dart-define=AVATAR_BASE_URL=https://corpoinstel.edu.co/api/prepsaber/backend/uploads/avatars/ \
+  --dart-define=DEFAULT_AVATAR_URL=https://corpoinstel.edu.co/api/prepsaber/backend/uploads/avatars/default_avatar.png \
+  --dart-define=AI_API_URL=https://corpoinstel.edu.co/api/prepsaber/backend/api_saber_plus_ia.php
 
 # Opción B (legacy): copiar .env y ejecutar normal
 cp .env.example .env   # y rellenar valores
