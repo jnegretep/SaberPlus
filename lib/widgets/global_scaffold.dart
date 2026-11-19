@@ -1,0 +1,435 @@
+// lib/widgets/global_scaffold.dart
+// Premium Scaffold global with animated bottom nav indicator,
+// dark mode support, and adaptive layout for tablets.
+// v1.6.1 WEB: en escritorio (>1100px) usa shell con NavigationRail lateral
+// (widgets/web_desktop_shell.dart) + contenido ancho centrado de 880px.
+
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import '../services/auth_service.dart';
+import '../config/navigation.dart';
+import '../core/theme/app_colors.dart';
+import 'web_desktop_shell.dart';
+
+class GlobalScaffold extends StatelessWidget {
+  final Widget body;
+  final int currentIndex;
+
+  const GlobalScaffold({
+    super.key,
+    required this.body,
+    required this.currentIndex,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = Provider.of<AuthService>(context);
+    final isTeacher = auth.isProfesor;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final activeColor = isDark ? AppColors.primaryLight : AppColors.primary;
+    final inactiveColor = isDark ? AppColors.darkTextTertiary : AppColors.textDisabled;
+    final navBgColor = isDark ? AppColors.darkSurface : AppColors.surface;
+
+    final width = MediaQuery.of(context).size.width;
+
+    // ✅ v1.6.1 WEB DESKTOP (>1100px): shell real — NavigationRail lateral de
+    // 200px + contenido centrado de ancho máx 880px sobre el fondo elegante
+    // que pone _webFrame (main.dart). En móvil/tablet nunca entra aquí.
+    if (kIsWeb && width > kWebDesktopBreakpoint) {
+      return _buildWebDesktopScaffold(
+        context,
+        body: body,
+        currentIndex: currentIndex,
+        isTeacher: isTeacher,
+        isDark: isDark,
+        activeColor: activeColor,
+        inactiveColor: inactiveColor,
+      );
+    }
+
+    // Check if tablet (width > 600). En web nunca: las ventanas web ≤1100px
+    // usan el bottom nav tipo móvil (el marco de 620px de _webFrame simula
+    // un teléfono) — guard estricto con kIsWeb para NO tocar móvil/tablet.
+    final isTablet = width > 600 && !kIsWeb;
+
+    return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+      body: SafeArea(
+        bottom: false,
+        child: body,
+      ),
+      bottomNavigationBar: isTablet
+          ? _buildAdaptiveNavRail(context, currentIndex, activeColor, inactiveColor, isTeacher)
+          : isTeacher
+              ? _buildTeacherBottomNav(context, currentIndex, navBgColor, activeColor, inactiveColor)
+              : _buildStudentBottomNav(context, currentIndex, navBgColor, activeColor, inactiveColor),
+    );
+  }
+
+  // ── WEB: Shell de escritorio (>1100px) ──
+  //
+  // Scaffold TRANSPARENTE (deja ver el degradado de fondo que pone
+  // _webFrame en main.dart) con:
+  //   - Izquierda: WebDesktopRail (NavigationRail extendida de 200px, logo
+  //     arriba) con los MISMOS destinos/iconos/labels del bottom nav.
+  //   - VerticalDivider de 1px.
+  //   - Derecha: contenido centrado horizontalmente, ancho máx 880px,
+  //     padding horizontal 32 (el child conserva su propio background).
+  //
+  // La navegación (onDestinationSelected) reutiliza EXACTAMENTE los mismos
+  // handlers del bottom nav (_onStudentTap / _onTeacherTap → Nav.go*), con
+  // el mismo guard de "índice actual". El bottom nav no tiene botón de
+  // salir, así que el rail tampoco (logout sigue en Más → Perfil).
+  Widget _buildWebDesktopScaffold(
+    BuildContext context, {
+    required Widget body,
+    required int currentIndex,
+    required bool isTeacher,
+    required bool isDark,
+    required Color activeColor,
+    required Color inactiveColor,
+  }) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
+        bottom: false,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            WebDesktopRail(
+              isTeacher: isTeacher,
+              currentIndex: currentIndex,
+              isDark: isDark,
+              activeColor: activeColor,
+              inactiveColor: inactiveColor,
+              onDestinationSelected: (index) {
+                if (isTeacher) {
+                  _onTeacherTap(context, index, currentIndex);
+                } else {
+                  _onStudentTap(context, index, currentIndex);
+                }
+              },
+            ),
+            VerticalDivider(
+              width: 1,
+              thickness: 1,
+              color: isDark ? AppColors.darkBorder : AppColors.border,
+            ),
+            Expanded(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                      maxWidth: kWebContentMaxWidth),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    child: body,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Navigation Rail for Tablets ──
+  Widget _buildAdaptiveNavRail(
+    BuildContext context,
+    int currentIndex,
+    Color activeColor,
+    Color inactiveColor,
+    bool isTeacher,
+  ) {
+    final destinations = isTeacher
+        ? [
+            const NavigationRailDestination(icon: Icon(Icons.dashboard_rounded), label: Text('Dashboard')),
+            const NavigationRailDestination(icon: Icon(Icons.school_rounded), label: Text('Estudiantes')),
+            const NavigationRailDestination(icon: Icon(Icons.analytics_rounded), label: Text('Estadísticas')),
+            const NavigationRailDestination(icon: Icon(Icons.picture_as_pdf_rounded), label: Text('Informes')),
+            const NavigationRailDestination(icon: Icon(Icons.person_rounded), label: Text('Perfil')),
+          ]
+        : [
+            const NavigationRailDestination(icon: Icon(Icons.home_rounded), label: Text('Inicio')),
+            const NavigationRailDestination(icon: Icon(Icons.school_rounded), label: Text('Retos')),
+            const NavigationRailDestination(icon: Icon(Icons.bar_chart_rounded), label: Text('Stats')),
+            const NavigationRailDestination(icon: Icon(Icons.settings_rounded), label: Text('Más')),
+          ];
+
+    return NavigationRail(
+      selectedIndex: currentIndex,
+      onDestinationSelected: (i) {
+        if (isTeacher) {
+          _onTeacherTap(context, i, currentIndex);
+        } else {
+          _onStudentTap(context, i, currentIndex);
+        }
+      },
+      destinations: destinations,
+      leading: Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Image.asset(
+          'assets/images/saberplus.png',
+          height: 32,
+          errorBuilder: (_, __, ___) => const Icon(Icons.school, size: 32),
+        ),
+      ),
+      indicatorColor: activeColor.withOpacity(0.12),
+      selectedIconTheme: IconThemeData(color: activeColor),
+      unselectedIconTheme: IconThemeData(color: inactiveColor),
+      selectedLabelTextStyle: MaterialStateTextStyle.resolveWith(
+        (states) => TextStyle(color: activeColor, fontWeight: FontWeight.w600, fontSize: 11),
+      ),
+      unselectedLabelTextStyle: TextStyle(color: inactiveColor, fontSize: 11),
+    );
+  }
+
+  // ── Bottom Nav Estudiantes (Premium) ──
+  Widget _buildStudentBottomNav(
+    BuildContext context,
+    int currentIndex,
+    Color bgColor,
+    Color activeColor,
+    Color inactiveColor,
+  ) {
+    final bottomInset = MediaQuery.of(context).padding.bottom;
+
+    return Container(
+      padding: EdgeInsets.only(left: 18, right: 18, top: 10, bottom: 12 + bottomInset),
+      decoration: BoxDecoration(
+        color: bgColor,
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.shadowSm,
+            blurRadius: 20,
+            offset: const Offset(0, -6),
+          ),
+        ],
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          _PremiumNavItem(
+            icon: Icons.home_rounded,
+            label: 'Inicio',
+            index: 0,
+            currentIndex: currentIndex,
+            activeColor: activeColor,
+            inactiveColor: inactiveColor,
+            onTap: (i) => _onStudentTap(context, i, currentIndex),
+          ),
+          _PremiumNavItem(
+            icon: Icons.school_rounded,
+            label: 'Retos',
+            index: 1,
+            currentIndex: currentIndex,
+            activeColor: activeColor,
+            inactiveColor: inactiveColor,
+            onTap: (i) => _onStudentTap(context, i, currentIndex),
+          ),
+          _PremiumNavItem(
+            icon: Icons.bar_chart_rounded,
+            label: 'Stats',
+            index: 2,
+            currentIndex: currentIndex,
+            activeColor: activeColor,
+            inactiveColor: inactiveColor,
+            onTap: (i) => _onStudentTap(context, i, currentIndex),
+          ),
+          _PremiumNavItem(
+            icon: Icons.settings_rounded,
+            label: 'Más',
+            index: 3,
+            currentIndex: currentIndex,
+            activeColor: activeColor,
+            inactiveColor: inactiveColor,
+            onTap: (i) => _onStudentTap(context, i, currentIndex),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Bottom Nav Profesores ──
+  Widget _buildTeacherBottomNav(
+    BuildContext context,
+    int currentIndex,
+    Color bgColor,
+    Color activeColor,
+    Color inactiveColor,
+  ) {
+    final bottomInset = MediaQuery.of(context).padding.bottom;
+
+    return Container(
+      padding: EdgeInsets.only(left: 12, right: 12, top: 10, bottom: 12 + bottomInset),
+      decoration: BoxDecoration(
+        color: bgColor,
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.shadowSm,
+            blurRadius: 20,
+            offset: const Offset(0, -6),
+          ),
+        ],
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          _PremiumNavItem(icon: Icons.dashboard_rounded, label: 'Dashboard', index: 0, currentIndex: currentIndex, activeColor: activeColor, inactiveColor: inactiveColor, onTap: (i) => _onTeacherTap(context, i, currentIndex), width: 56),
+          _PremiumNavItem(icon: Icons.school_rounded, label: 'Estudiantes', index: 1, currentIndex: currentIndex, activeColor: activeColor, inactiveColor: inactiveColor, onTap: (i) => _onTeacherTap(context, i, currentIndex), width: 56, fontSize: 10),
+          _PremiumNavItem(icon: Icons.analytics_rounded, label: 'Estadísticas', index: 2, currentIndex: currentIndex, activeColor: activeColor, inactiveColor: inactiveColor, onTap: (i) => _onTeacherTap(context, i, currentIndex), width: 56, fontSize: 10),
+          _PremiumNavItem(icon: Icons.picture_as_pdf_rounded, label: 'Informes', index: 3, currentIndex: currentIndex, activeColor: activeColor, inactiveColor: inactiveColor, onTap: (i) => _onTeacherTap(context, i, currentIndex), width: 56, fontSize: 10),
+          _PremiumNavItem(icon: Icons.person_rounded, label: 'Perfil', index: 4, currentIndex: currentIndex, activeColor: activeColor, inactiveColor: inactiveColor, onTap: (i) => _onTeacherTap(context, i, currentIndex), width: 56, fontSize: 10),
+        ],
+      ),
+    );
+  }
+
+  // ── Navigation Handlers ──
+  // ✅ v1.7.1: tocar el índice ACTUAL ya no se ignora — lleva a la raíz de
+  // esa sección. Así, desde "Cursos" (que resalta Inicio) el usuario puede
+  // volver al dashboard tocando "Inicio" (antes no pasaba nada).
+  // ✅ PT1: los tabs usan context.go — cambiar de sección NO apila
+  // entradas en el historial del navegador (antes cada tap en una pestaña
+  // añadía una página y "atrás" tenía que deshacer todos los cambios de
+  // pestaña antes de salir).
+  void _onStudentTap(BuildContext context, int index, int currentIndex) {
+    switch (index) {
+      case 0: context.go('/dashboard'); break;
+      case 1: context.go('/challenges'); break;
+      case 2: context.go('/estadisticas'); break;
+      case 3: context.go('/perfil-hub'); break;
+    }
+  }
+
+  void _onTeacherTap(BuildContext context, int index, int currentIndex) {
+    switch (index) {
+      case 0: context.go('/teacher'); break;
+      case 1: context.go('/teacher/students'); break;
+      case 2: context.go('/teacher/stats'); break;
+      case 3: context.go('/teacher/reports'); break;
+      case 4: context.go('/perfil-hub'); break;
+    }
+  }
+}
+
+// ── Premium Nav Item with animated indicator ──
+class _PremiumNavItem extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final int index;
+  final int currentIndex;
+  final Color activeColor;
+  final Color inactiveColor;
+  final ValueChanged<int> onTap;
+  final double width;
+  final double fontSize;
+
+  const _PremiumNavItem({
+    required this.icon,
+    required this.label,
+    required this.index,
+    required this.currentIndex,
+    required this.activeColor,
+    required this.inactiveColor,
+    required this.onTap,
+    this.width = 64,
+    this.fontSize = 11,
+  });
+
+  @override
+  State<_PremiumNavItem> createState() => _PremiumNavItemState();
+}
+
+class _PremiumNavItemState extends State<_PremiumNavItem>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+      value: widget.index == widget.currentIndex ? 1.0 : 0.0,
+    );
+    _scale = CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
+    if (widget.index == widget.currentIndex) {
+      _controller.forward();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _PremiumNavItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final isActive = widget.index == widget.currentIndex;
+    if (isActive && !_controller.isCompleted) {
+      _controller.forward();
+    } else if (!isActive && !_controller.isDismissed) {
+      _controller.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isActive = widget.index == widget.currentIndex;
+
+    return GestureDetector(
+      onTap: () => widget.onTap(widget.index),
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: widget.width,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Active indicator pill
+            AnimatedBuilder(
+              animation: _scale,
+              builder: (context, child) {
+                return Container(
+                  width: 28 * _scale.value,
+                  height: 3,
+                  decoration: BoxDecoration(
+                    color: widget.activeColor.withOpacity(_scale.value),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 6),
+            // Icon
+            Icon(
+              widget.icon,
+              size: widget.width < 60 ? 22 : 24,
+              color: isActive ? widget.activeColor : widget.inactiveColor,
+            ),
+            const SizedBox(height: 4),
+            // Label
+            Text(
+              widget.label,
+              style: TextStyle(
+                fontSize: widget.fontSize,
+                fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+                color: isActive ? widget.activeColor : widget.inactiveColor,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

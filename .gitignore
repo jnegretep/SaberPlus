@@ -1,0 +1,98 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Environment & secrets
+.env
+.env.production
+.env.staging
+*.env.local
+backend/.env
+backend/.env.*
+!backend/.env.example
+
+backend/saberplus-1ec41-firebase-adminsdk-fbsvc-23a4103b63.json
+backend/reports/*.pdf
+backend/cache/images/*
+backend/uploads/avatars/*
+!backend/uploads/avatars/.gitkeep
+backend/uploads/avatar_*
+backend/vendor
+backend/*.log
+backend/wompi_webhook.log
+
+# Android build
+android/build/
+android/.gradle/
+android/app/build/
+android/local.properties
+android/key.properties
+*.jks
+*.keystore
+
+# Generados por Flutter
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Sistema operativo / editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Firebase
+lib/firebase_options.dart
+firebase.json.env 
+key.properties 
+*.jks 
+google-services.json 
+
+
+# Firma de release — NUNCA subir a Git
+android/key.properties
+android/app/upload-keystore.jks
+android/upload-keystore.jks
+*.jks
+*.keystore

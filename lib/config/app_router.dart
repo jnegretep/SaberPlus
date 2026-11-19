@@ -1,0 +1,660 @@
+// lib/config/app_router.dart
+// GoRouter configuration for Saber+
+// Type-safe navigation with auth guards and deep linking
+
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+
+import '../services/auth_service.dart';
+import '../services/api_service.dart';
+import '../services/analytics_service.dart';
+import '../core/constants/app_constants.dart';
+import '../core/utils/app_logger.dart';
+import '../core/theme/app_colors.dart';
+import '../models/course.dart';
+import '../controllers/quiz_controller.dart';
+
+// Screens
+import '../screens/welcome_screen.dart';
+import '../screens/login_screen.dart';
+import '../screens/dashboard_screen.dart';
+import '../screens/onboarding_screen.dart';
+import '../screens/course_list_screen.dart';
+import '../screens/course_contents_screen.dart';
+import '../screens/quiz_list_screen.dart';
+import '../screens/quiz_intro_screen.dart';
+import '../screens/question_screen.dart';
+import '../screens/html_viewer_screen.dart';
+import '../screens/simulacro_stats_screen.dart';
+import '../screens/chat_screen.dart';
+import '../screens/notifications_screen.dart';
+import '../screens/area_trend_screen.dart';
+import '../screens/comparativas_screen.dart';
+import '../screens/ranking_screen.dart';
+import '../screens/forgot_password_screen.dart';
+import '../screens/verify_reset_password_screen.dart';
+import '../screens/register_step1.dart';
+import '../screens/register_step2.dart';
+import '../screens/registration_success_screen.dart';
+import '../screens/verify_email_screen.dart';
+import '../screens/set_password_screen.dart';
+import '../screens/lock_screen.dart';
+import '../screens/perfil_screen.dart';
+import '../screens/upgrade_screen.dart';
+import '../screens/acerca_screen.dart';
+import '../screens/soporte_screen.dart';
+import '../screens/privacidad_screen.dart';
+import '../screens/perfil_hub_screen.dart';
+import '../screens/stats_home_screen.dart';
+import '../screens/challenge_list_screen.dart';
+import '../screens/challenge_detail_screen.dart';
+import '../screens/challenge_results_screen.dart';
+import '../screens/challenge_question_screen.dart';
+import '../screens/create_challenge_screen.dart';
+import '../screens/edit_profile_complete_screen.dart';
+import '../screens/change_password_screen.dart';
+import '../screens/review_screen.dart';
+import '../screens/teacher/teacher_dashboard_screen.dart';
+import '../screens/teacher/teacher_reports_screen.dart';
+import '../screens/teacher/teacher_stats_screen.dart';
+import '../screens/teacher/teacher_students_screen.dart';
+import '../screens/invitations_screen.dart';
+import '../screens/achievements_screen.dart';
+import '../screens/xp_ranking_screen.dart';
+import '../screens/daily_challenges_screen.dart';
+import '../screens/prediction_screen.dart';
+import '../screens/error_analysis_screen.dart';
+
+/// Rutas que NO requieren autenticación
+const _publicRoutes = {
+  '/welcome',
+  '/login',
+  '/register',
+  '/register/step1',
+  '/register/step2',
+  '/register/verify-email',
+  '/register/set-password',
+  // ✅ FIX FASE 2.4: '/register/success' faltaba en esta lista.
+  // set_password_screen hace pushReplacement('/register/success') tras
+  // crear la contraseña (en modo registro, resetToken == null). Como el
+  // usuario en ese punto NO tiene JWT (set_password limpia el storage),
+  // y la ruta no estaba declarada pública, el redirect del router la
+  // enviaba a '/login' sin mostrar la pantalla de éxito. Es el mismo
+  // síntoma que el bug del verify (usuario acaba en login), pero una
+  // capa más adelante.
+  '/register/success',
+  '/forgot-password',
+  '/forgot-password/verify-reset',
+  '/forgot-password/reset-password',
+};
+
+/// ✅ PT1 (transformación 2026-11): pantalla de fallback cuando se accede
+/// por URL directa (F5 / deep link) a una ruta que requiere datos en
+/// `extra` que solo existen en memoria. Evita el crash por cast de null
+/// y devuelve al usuario a un lugar seguro.
+Widget _extraRequiredFallback(BuildContext context, String routeName) {
+  return Scaffold(
+    backgroundColor: AppColors.background,
+    appBar: AppBar(title: Text(routeName)),
+    body: Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.link_off_rounded,
+                size: 64, color: AppColors.textTertiary),
+            const SizedBox(height: 16),
+            Text(
+              'Esta pantalla no puede abrirse directamente',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'El contenido que buscas ya no está disponible en esta sesión. '
+              'Vuelve al inicio para continuar.',
+              style: TextStyle(
+                fontSize: 13,
+                color: AppColors.textSecondary,
+                height: 1.5,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            FilledButton(
+              onPressed: () => context.go('/dashboard'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('Volver al inicio'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// Construye el GoRouter con auth guard
+GoRouter buildAppRouter({
+  required AuthService auth,
+  required ApiService api,
+  required String initialLocation,
+}) {
+  return GoRouter(
+    initialLocation: initialLocation,
+    debugLogDiagnostics: true,
+    // ✅ v1.6.0: observer de analítica (screen_view en Firebase + backend)
+    observers: [AnalyticsService.observer],
+    // ✅ FIX #1: refreshListenable permite que el router reaccione a cambios
+    // de auth SIN necesidad de recrear el router. Esto evita que tras login
+    // el usuario sea devuelto a la pantalla inicial.
+    refreshListenable: auth,
+    redirect: (context, state) {
+      final isAuthenticated = auth.token != null;
+      final isPublicRoute = _publicRoutes.contains(state.matchedLocation);
+
+      // Si no autenticado y ruta protegida → login
+      if (!isAuthenticated && !isPublicRoute) {
+        AppLogger.d('Redirect: ${state.matchedLocation} → /login (no auth)');
+        return '/login';
+      }
+
+      // ✅ FIX #1+#3: Si autenticado y en ruta pública (INCLUSIVE /welcome) → dashboard
+      // Antes se excluía /welcome, causaba que tras login el usuario quedara atrapado en welcome
+      if (isAuthenticated && isPublicRoute) {
+        final target = auth.isProfesor ? '/teacher' : '/dashboard';
+        AppLogger.d('Redirect: ${state.matchedLocation} → $target (already auth)');
+        return target;
+      }
+
+      return null; // Sin redirect
+    },
+    routes: [
+      // ── Público ──
+      GoRoute(
+        path: '/welcome',
+        builder: (context, state) => const WelcomeScreen(),
+      ),
+      GoRoute(
+        path: '/login',
+        builder: (context, state) => LoginScreen(),
+      ),
+
+      // ── Registro ──
+      GoRoute(
+        path: '/register/step1',
+        builder: (context, state) => const RegisterStep1(),
+      ),
+      GoRoute(
+        path: '/register/step2',
+        builder: (context, state) {
+          // ✅ FIX v2.0 (avatar): el extra ahora transporta también la imagen/
+          // asset elegidos en el paso 1. Antes se perdían aquí → _encodeAvatar()
+          // devolvía null → avatar_path quedaba NULL en BD (bug del avatar).
+          // Es Map<String, dynamic> (no String): File no es serializable a String.
+          final extra = state.extra as Map<String, dynamic>? ?? {};
+          return RegisterStep2(
+            nombre: extra['nombre'] ?? '',
+            email: extra['email'] ?? '',
+            telefono: extra['telefono'] ?? '',
+            username: extra['username'] ?? '',
+            selectedImage: extra['selectedImage'],
+            selectedAvatarAsset: extra['selectedAvatarAsset'],
+          );
+        },
+      ),
+      GoRoute(
+        path: '/register/verify-email',
+        builder: (context, state) {
+          // ✅ PT1: null-check — F5/deep-link no debe crashear
+          final extra = state.extra;
+          if (extra is! Map<String, dynamic> ||
+              extra['email'] is! String ||
+              extra['userId'] is! int) {
+            return _extraRequiredFallback(context, 'Verificación');
+          }
+          return VerifyEmailScreen(
+            email: extra['email'] as String,
+            // ✅ FIX: VerifyEmailScreen espera String, convertimos el int
+            userId: extra['userId'].toString(),
+            selectedImage: extra['selectedImage'],
+            selectedAvatarAsset: extra['selectedAvatarAsset'],
+          );
+        },
+      ),
+      GoRoute(
+        path: '/register/set-password',
+        builder: (context, state) {
+          // ✅ PT1: null-check — F5/deep-link no debe crashear
+          final extra = state.extra;
+          if (extra is! Map<String, dynamic> ||
+              extra['userId'] is! int ||
+              extra['email'] is! String) {
+            return _extraRequiredFallback(context, 'Crear contraseña');
+          }
+          return SetPasswordScreen(
+            userId: extra['userId'] as int,
+            email: extra['email'] as String,
+            selectedImage: extra['selectedImage'],
+            selectedAvatarAsset: extra['selectedAvatarAsset'],
+          );
+        },
+      ),
+
+      // ── Recuperar contraseña ──
+      GoRoute(
+        path: '/forgot-password',
+        builder: (context, state) => const ForgotPasswordScreen(),
+      ),
+      // ✅ v2.0: éxito del registro (pantalla final con siguiente paso claro)
+      GoRoute(
+        path: '/register/success',
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>? ?? {};
+          return RegistrationSuccessScreen(
+            email: extra['email'] as String? ?? '',
+            username: extra['username'] as String? ?? '',
+          );
+        },
+      ),
+      // ✅ v2.0: bloqueo biométrico local (guarda la app si hay sesión activa)
+      GoRoute(
+        path: '/lock',
+        pageBuilder: (context, state) => CustomTransitionPage<void>(
+          child: const LockScreen(),
+          transitionDuration: const Duration(milliseconds: 250),
+          transitionsBuilder: (context, animation, secondary, child) =>
+              FadeTransition(opacity: animation, child: child),
+        ),
+      ),
+      GoRoute(
+        path: '/forgot-password/verify-reset',
+        builder: (context, state) {
+          final email = state.uri.queryParameters['email'] ?? '';
+          return VerifyResetPasswordScreen(email: email);
+        },
+      ),
+      GoRoute(
+        path: '/forgot-password/reset-password',
+        builder: (context, state) {
+          // ✅ PT1: null-check — F5/deep-link no debe crashear
+          final extra = state.extra;
+          if (extra is! Map<String, dynamic> ||
+              extra['userId'] is! int ||
+              extra['email'] is! String) {
+            return _extraRequiredFallback(context, 'Restablecer contraseña');
+          }
+          return SetPasswordScreen(
+            userId: extra['userId'] as int,
+            email: extra['email'] as String,
+            resetToken: extra['resetToken'] as String?,
+          );
+        },
+      ),
+
+      // ── Dashboard (principal) ──
+      GoRoute(
+        path: '/dashboard',
+        builder: (context, state) => const DashboardScreen(),
+      ),
+
+      // ✅ PT6: tour de bienvenida post-login (una vez; relanzable desde
+      // Configuración). Se muestra con el usuario ya autenticado.
+      GoRoute(
+        path: '/onboarding',
+        builder: (context, state) => OnboardingScreen(
+          onFinish: (state.extra is Map<String, dynamic> &&
+                  (state.extra as Map<String, dynamic>)['manual'] == true)
+              ? () => context.go('/perfil-hub')
+              : () => context.go('/dashboard'),
+        ),
+      ),
+
+      // ── Premium / Upgrade ──
+      // 🐛 FIX (2026-09): Nav.goUpgrade() navegaba a '/upgrade' pero la ruta
+      // NO estaba registrada → pantalla "Página no encontrada". UpgradeScreen
+      // solo era alcanzable vía Navigator.push directo (fuera del router).
+      GoRoute(
+        path: '/upgrade',
+        builder: (context, state) => const UpgradeScreen(),
+      ),
+
+      // ── Cursos ──
+      GoRoute(
+        path: '/courses',
+        builder: (context, state) {
+          final category = state.uri.queryParameters['category'] ?? AppConstants.categoryCourses;
+          final title = state.uri.queryParameters['title'] ?? 'Mis Cursos';
+          return CourseListScreen(category: category, title: title);
+        },
+      ),
+      GoRoute(
+        path: '/course-contents/:courseId',
+        builder: (context, state) {
+          final courseId = int.parse(state.pathParameters['courseId']!);
+          final courseName = state.uri.queryParameters['name'] ?? '';
+          return CourseContentsScreen(courseId: courseId, courseName: courseName);
+        },
+      ),
+      GoRoute(
+        path: '/quizzes/:courseId',
+        builder: (context, state) {
+          final courseId = int.parse(state.pathParameters['courseId']!);
+          final courseName = state.uri.queryParameters['name'] ?? '';
+          final course = Course(
+            id: courseId,
+            fullname: courseName,
+            shortname: courseName,
+            startdate: 0,
+            enddate: 0,
+            visible: true,
+          );
+          return QuizListScreen(course: course);
+        },
+      ),
+      GoRoute(
+        path: '/question',
+        builder: (context, state) {
+          // ✅ PT1: null-check — F5 en medio de un cuestionario no debe
+          // crashear; se muestra el fallback con salida segura.
+          final extra = state.extra;
+          if (extra is! Map<String, dynamic> ||
+              extra['controller'] is! QuizController ||
+              extra['courseId'] is! int) {
+            return _extraRequiredFallback(context, 'Cuestionario');
+          }
+          return QuestionScreen(
+            controller: extra['controller'] as QuizController,
+            courseId: extra['courseId'] as int,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/review',
+        builder: (context, state) {
+          // ✅ PT1: null-check — F5 en la revisión no debe crashear.
+          final extra = state.extra;
+          if (extra is! Map<String, dynamic> ||
+              extra['reviewData'] is! Map<String, dynamic> ||
+              extra['courseId'] is! int ||
+              extra['quizId'] is! int) {
+            return _extraRequiredFallback(context, 'Revisión');
+          }
+          return ReviewScreen(
+            reviewData: extra['reviewData'] as Map<String, dynamic>,
+            courseId: extra['courseId'] as int,
+            quizId: extra['quizId'] as int,
+          );
+        },
+      ),
+
+      // ✅ PT1: ficha del quiz — antes solo alcanzable con Navigator.push
+      // crudo (fuera del historial del navegador). Ahora con URL propia.
+      GoRoute(
+        path: '/quiz-intro/:courseId/:quizId',
+        builder: (context, state) {
+          final courseId = int.parse(state.pathParameters['courseId']!);
+          final quizId = int.parse(state.pathParameters['quizId']!);
+          final extra = state.extra;
+          if (extra is! Map<String, dynamic> ||
+              extra['quizName'] is! String) {
+            return _extraRequiredFallback(context, 'Simulacro');
+          }
+          return QuizIntroScreen(
+            quizId: quizId,
+            quizName: extra['quizName'] as String,
+            courseId: courseId,
+            timeLimit: (extra['timeLimit'] as num?)?.toInt() ?? 0,
+            questions: (extra['questions'] as num?)?.toInt() ?? 0,
+            api: api,
+          );
+        },
+      ),
+
+      // ✅ PT1: visor de contenido HTML de un módulo (con fallback por F5)
+      GoRoute(
+        path: '/html-viewer',
+        builder: (context, state) {
+          final extra = state.extra;
+          if (extra is! Map<String, dynamic> ||
+              extra['html'] is! String) {
+            return _extraRequiredFallback(context, 'Contenido');
+          }
+          return HtmlViewerScreen(
+            title: (extra['title'] as String?) ?? 'Contenido',
+            html: extra['html'] as String,
+          );
+        },
+      ),
+
+      // ✅ PT1: estadísticas de un simulacro (antes Navigator.push crudo)
+      GoRoute(
+        path: '/simulacro-stats/:quizId',
+        builder: (context, state) {
+          final quizId = int.parse(state.pathParameters['quizId']!);
+          final courseId =
+              int.tryParse(state.uri.queryParameters['courseId'] ?? '') ?? 0;
+          return SimulacroStatsScreen(
+            simulacroId: quizId,
+            courseId: courseId,
+            api: api,
+          );
+        },
+      ),
+
+      // ── Perfil ──
+      GoRoute(
+        path: '/profile',
+        builder: (context, state) => const PerfilScreen(),
+      ),
+      GoRoute(
+        path: '/perfil-hub',
+        builder: (context, state) => const PerfilHubScreen(),
+      ),
+      GoRoute(
+        path: '/edit-profile',
+        builder: (context, state) => const EditProfileCompleteScreen(),
+      ),
+      GoRoute(
+        path: '/change-password',
+        builder: (context, state) => const ChangePasswordScreen(),
+      ),
+
+      // ── Estadísticas ──
+      GoRoute(
+        path: '/estadisticas',
+        builder: (context, state) => StatsHomeScreen(),
+      ),
+
+      // ✅ PT1: sub-pantallas de estadísticas — antes solo alcanzables con
+      // Navigator.push crudo. Ahora con URL propia (deep-link friendly).
+      GoRoute(
+        path: '/stats/area-trend',
+        builder: (context, state) {
+          final area = state.uri.queryParameters['area'] ?? 'lectura';
+          return AreaTrendScreen(area: area);
+        },
+      ),
+      GoRoute(
+        path: '/stats/comparativas',
+        builder: (context, state) {
+          final area = state.uri.queryParameters['area'] ?? 'global';
+          final scope = state.uri.queryParameters['scope'] ?? 'national';
+          return ComparativasScreen(area: area, scope: scope);
+        },
+      ),
+      GoRoute(
+        path: '/stats/ranking',
+        builder: (context, state) {
+          final area = state.uri.queryParameters['area'] ?? 'global';
+          final scope = state.uri.queryParameters['scope'] ?? 'national';
+          return RankingScreen(area: area, scope: scope);
+        },
+      ),
+
+      // ✅ PT1: notificaciones — antes Navigator.push crudo desde 2 puntos
+      GoRoute(
+        path: '/notifications',
+        builder: (context, state) => const NotificationsScreen(),
+      ),
+
+      // ✅ PT1: tutor IA — el FAB del dashboard abría ChatScreen fuera del
+      // router. Ahora con URL propia.
+      GoRoute(
+        path: '/chat',
+        builder: (context, state) => const ChatScreen(),
+      ),
+
+      // ── Logros / Achievements ──
+      GoRoute(
+        path: '/achievements',
+        builder: (context, state) => const AchievementsScreen(),
+      ),
+
+      // ── Ranking de XP ──
+      GoRoute(
+        path: '/xp-ranking',
+        builder: (context, state) => const XpRankingScreen(),
+      ),
+
+      // ── Retos Diarios ──
+      GoRoute(
+        path: '/daily-challenges',
+        builder: (context, state) => const DailyChallengesScreen(),
+      ),
+
+      // ── Prediccion ICFES ──
+      GoRoute(
+        path: '/prediction',
+        builder: (context, state) => const PredictionScreen(),
+      ),
+
+      // ── Analisis de Errores ──
+      GoRoute(
+        path: '/error-analysis',
+        builder: (context, state) => const ErrorAnalysisScreen(),
+      ),
+
+      // ── Retos (Challenges) ──
+      GoRoute(
+        path: '/challenges',
+        builder: (context, state) => ChallengeListScreen(api: api),
+      ),
+      GoRoute(
+        path: '/challenges/create',
+        builder: (context, state) => CreateChallengeScreen(api: api),
+      ),
+      GoRoute(
+        path: '/challenges/:id',
+        builder: (context, state) {
+          final id = int.parse(state.pathParameters['id']!);
+          return ChallengeDetailScreen(api: api, challengeId: id);
+        },
+      ),
+      GoRoute(
+        path: '/challenges/:id/question',
+        builder: (context, state) {
+          final id = int.parse(state.pathParameters['id']!);
+          // ✅ PT1: null-check — F5/deep-link no debe crashear
+          final extra = state.extra;
+          if (extra is! Map<String, dynamic> ||
+              extra['attemptId'] is! int ||
+              extra['quizId'] is! int ||
+              extra['duration'] is! int) {
+            return _extraRequiredFallback(context, 'Reto');
+          }
+          return ChallengeQuestionScreen(
+            api: api,
+            challengeId: id,
+            attemptId: extra['attemptId'] as int,
+            quizId: extra['quizId'] as int,
+            durationMinutes: extra['duration'] as int,
+            courseId: extra['courseId'] as int?,
+            startedAt: extra['startedAt'] as DateTime?,
+            endTimeGlobal: extra['endTimeGlobal'] as DateTime?,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/challenges/:id/results',
+        builder: (context, state) {
+          final id = int.parse(state.pathParameters['id']!);
+          return ChallengeResultsScreen(api: api, challengeId: id);
+        },
+      ),
+
+      // ── Teacher ──
+      GoRoute(
+        path: '/teacher',
+        builder: (context, state) => const TeacherDashboardScreen(),
+      ),
+      GoRoute(
+        path: '/teacher/students',
+        builder: (context, state) => const TeacherStudentsScreen(),
+      ),
+      GoRoute(
+        path: '/teacher/stats',
+        builder: (context, state) => const TeacherStatsScreen(),
+      ),
+      GoRoute(
+        path: '/teacher/reports',
+        builder: (context, state) => const TeacherReportsScreen(),
+      ),
+
+      // ── Info ──
+      GoRoute(
+        path: '/acerca',
+        builder: (context, state) => const AcercaScreen(),
+      ),
+      GoRoute(
+        path: '/privacidad',
+        builder: (context, state) => const PrivacidadScreen(),
+      ),
+      GoRoute(
+        path: '/soporte',
+        builder: (context, state) => const SoporteScreen(),
+      ),
+
+      // ── Invitaciones ──
+      GoRoute(
+        path: '/invitations',
+        builder: (context, state) => const InvitationsScreen(),
+      ),
+    ],
+
+    // Error page para rutas no encontradas
+    errorBuilder: (context, state) => Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, size: 64, color: Theme.of(context).colorScheme.error),
+            const SizedBox(height: 16),
+            Text(
+              'Página no encontrada',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 8),
+            Text(state.matchedLocation),
+            const SizedBox(height: 24),
+            FilledButton(
+              onPressed: () => context.go('/dashboard'),
+              child: const Text('Volver al inicio'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}

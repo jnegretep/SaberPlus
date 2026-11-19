@@ -1,0 +1,674 @@
+// lib/screens/course_contents_screen.dart
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
+import 'package:video_player/video_player.dart';
+import 'package:chewie/chewie.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'dart:convert';
+import '../models/course_section.dart';
+import '../models/course_module.dart';
+import '../models/module_content.dart'; // ✅ NUEVO: Para la detección de PDFs
+import '../services/api_service.dart';
+import '../core/services/course_cache_service.dart';
+import '../core/utils/app_logger.dart';
+import '../widgets/math/math_text.dart';
+import '../widgets/video/premium_video_player.dart';
+import '../widgets/pdf/premium_pdf_viewer.dart'; // ✅ NUEVO: Tu visor de PDF
+import '../config/navigation.dart';
+import '../core/theme/app_colors.dart';
+
+class CourseContentsScreen extends StatefulWidget {
+  final int courseId;
+  final String courseName;
+
+  const CourseContentsScreen({
+    super.key,
+    required this.courseId,
+    required this.courseName,
+  });
+
+  @override
+  State<CourseContentsScreen> createState() => _CourseContentsScreenState();
+}
+
+class _CourseContentsScreenState extends State<CourseContentsScreen>
+    with SingleTickerProviderStateMixin {
+  bool _loading = true;
+  List<CourseSection> _sections = [];
+  TabController? _tabController;
+  String? _loadError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadContents();
+  }
+
+  /// ✅ FASE 4: Carga contenido del curso con caché offline (TTL 24h).
+  /// Si no hay internet, usa el caché aunque esté expirado.
+  Future<void> _loadContents({bool forceRefresh = false}) async {
+    final api = context.read<ApiService>();
+
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
+
+    try {
+      final sections = await CourseCacheService.fetchCourseContentsWithCache(
+        api: api,
+        courseId: widget.courseId,
+        forceRefresh: forceRefresh,
+      );
+      if (!mounted) return;
+
+      setState(() {
+        _sections = sections;
+        _loading = false;
+      });
+
+      _tabController?.dispose();
+      _tabController =
+          TabController(length: _sections.length, vsync: this);
+    } catch (e) {
+      AppLogger.e('CourseContents: error cargando contenido', e);
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadError = e.toString();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _tabController?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+          ),
+        ),
+      );
+    }
+
+    if (_sections.isEmpty) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          backgroundColor: AppColors.surface,
+          elevation: 1,
+          leading: IconButton(
+            icon: Icon(Icons.arrow_back, color: AppColors.textSecondary),
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: Text(
+            widget.courseName,
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.inventory_2_outlined,
+                size: 64,
+                color: AppColors.textDisabled,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _loadError ?? 'No hay contenidos disponibles',
+                style: TextStyle(
+                  color: AppColors.textTertiary,
+                  fontSize: 16,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              if (_loadError != null)
+                ElevatedButton(
+                  onPressed: _loadContents,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Reintentar',
+                    style: TextStyle(color: AppColors.textOnPrimary),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Header mejorado
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.shadowSm,
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: Icon(
+                      Icons.arrow_back_rounded,
+                      color: AppColors.textSecondary,
+                      size: 24,
+                    ),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  Expanded(
+                    child: Text(
+                      widget.courseName,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textSecondary,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 2,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Tabs mejorados
+            Container(
+              color: AppColors.surface,
+              child: TabBar(
+                controller: _tabController,
+                isScrollable: true,
+                indicatorColor: AppColors.primary,
+                indicatorWeight: 3,
+                indicatorPadding: const EdgeInsets.symmetric(horizontal: 8),
+                labelColor: AppColors.primary,
+                unselectedLabelColor: AppColors.textTertiary,
+                labelStyle: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+                unselectedLabelStyle: TextStyle(
+                  fontWeight: FontWeight.w500,
+                  fontSize: 14,
+                ),
+                tabs: _sections
+                    .map((s) => Tab(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: Text(
+                              s.name.isEmpty ? 'Unidad' : s.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ))
+                    .toList(),
+              ),
+            ),
+
+            // Contenido
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: _sections.map(_buildSectionView).toList(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ───────────────── SECTION VIEW ─────────────────
+
+  Widget _buildSectionView(CourseSection s) {
+    final summary = s.summary ?? '';
+
+    // Primero extraemos los videos del HTML original
+    final videos = _extractVideoUrls(summary);
+    // Luego limpiamos el HTML para mostrar, pero sin eliminar las URLs de video
+    final cleanedHtml = _cleanHtmlForDisplay(summary);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (cleanedHtml.trim().isNotEmpty)
+            _buildHtmlWithLatex(cleanedHtml),
+
+          // Mostrar videos si existen
+          if (videos.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            const Padding(
+              padding: EdgeInsets.only(left: 8, bottom: 8),
+              child: Text(
+                'Videos del contenido',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+            ...videos.map((url) => PremiumVideoPlayer(url: url)),
+          ],
+
+          if (s.modules.isNotEmpty) ...[
+            const SizedBox(height: 28),
+            const Padding(
+              padding: EdgeInsets.only(left: 8, bottom: 12),
+              child: Text(
+                'Módulos y actividades',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+            ...s.modules.map(_buildModuleCard),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ───────────────── MODULE CARD ─────────────────
+
+  Widget _buildModuleCard(CourseModule m) {
+    final mod = m.modName.toLowerCase();
+    
+    // ✅ MEJORA: Detectar si es un PDF para darle un ícono especial
+    bool isPdf = false;
+    if (mod == 'resource' || mod == 'file') {
+      isPdf = m.contents.any((c) => 
+        c.mimetype == 'application/pdf' || 
+        (c.filename?.toLowerCase().endsWith('.pdf') ?? false)
+      );
+    }
+
+    IconData icon;
+    Color color;
+    String typeText;
+
+    if (isPdf) {
+      icon = Icons.picture_as_pdf_rounded;
+      color = Colors.red.shade600; // Color clásico de PDF
+      typeText = 'Documento PDF';
+    } else {
+      switch (mod) {
+        case 'quiz':
+          icon = Icons.quiz_rounded;
+          color = AppColors.primary;
+          typeText = 'Cuestionario';
+          break;
+        case 'page':
+        case 'lesson':
+          icon = Icons.menu_book_rounded;
+          color = AppColors.successDark;
+          typeText = 'Lección interactiva';
+          break;
+        case 'url':
+          icon = Icons.open_in_new_rounded;
+          color = AppColors.purple;
+          typeText = 'Enlace externo';
+          break;
+        case 'resource':
+        case 'file':
+          icon = Icons.attach_file_rounded;
+          color = AppColors.warning;
+          typeText = 'Recurso / Archivo';
+          break;
+        case 'folder':
+          icon = Icons.folder_zip_rounded;
+          color = Colors.orange;
+          typeText = 'Carpeta de archivos';
+          break;
+        case 'forum':
+          icon = Icons.forum_rounded;
+          color = Colors.teal;
+          typeText = 'Foro de discusión';
+          break;
+        default:
+          icon = Icons.description_rounded;
+          color = AppColors.textMuted;
+          typeText = 'Contenido';
+      }
+    }
+
+    return InkWell(
+      onTap: () => _onModuleTap(m),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.shadowSm,
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+          border: Border.all(
+            color: AppColors.divider,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            // Icono circular con color de fondo
+            Container(
+              height: 48,
+              width: 48,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: color.withOpacity(0.3), width: 1.5),
+              ),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            
+            const SizedBox(width: 16),
+            
+            // Información del módulo
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    m.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    typeText,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textTertiary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Indicador de acción
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 16,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ───────────────── TAP HANDLER ─────────────────
+
+  Future<void> _onModuleTap(CourseModule m) async {
+    final api = context.read<ApiService>();
+    final mod = m.modName.toLowerCase();
+
+    // 1. Si es un Quiz
+    if (mod == 'quiz' && m.quizId != null) {
+      final quizzes = await api.fetchQuizzes(widget.courseId);
+      final quiz = quizzes.firstWhere((q) => q.quizId == m.quizId);
+
+      if (!mounted) return;
+      Nav.goQuizIntro(
+        context,
+        courseId: quiz.courseId,
+        quizId: quiz.quizId,
+        quizName: quiz.name,
+        timeLimit: quiz.timelimit,
+        questions: quiz.questions,
+      );
+      return;
+    }
+
+    // 2. ✅ NUEVO: Si es un archivo/recurso (ej. PDF), abrir tu PremiumPdfViewer
+    if (mod == 'resource' || mod == 'file') {
+      // Buscar si hay un archivo PDF en el contenido del módulo
+      final pdfContent = m.contents.firstWhere(
+        (c) => c.mimetype == 'application/pdf' || (c.filename?.toLowerCase().endsWith('.pdf') ?? false),
+        orElse: () => ModuleContent.empty(),
+      );
+
+      // Si encontramos la URL del PDF, lo abrimos
+      if (pdfContent.fileurl != null && pdfContent.fileurl!.isNotEmpty) {
+        
+        // 🛑 DEBUG: Esto te dirá en consola si el backend está entregando la URL proxyada.
+        // Si ves la URL de preicfes.corpoinstel.edu.co, el backend falló.
+        // Si ves la URL de corpoinstel.edu.co/.../get_file.php, el backend está perfecto.
+        print("🛑 URL DEL PDF A DESCARGAR: ${pdfContent.fileurl}");
+        
+        if (!mounted) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PremiumPdfViewer(
+              url: pdfContent.fileurl!,
+              title: pdfContent.filename ?? m.name,
+            ),
+          ),
+        );
+        return;
+      } else {
+        // Si es un recurso pero no es un PDF (o no tiene URL), mostramos aviso
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Este archivo no es un PDF previsualizable o no tiene URL válida.'),
+            backgroundColor: AppColors.warning,
+          ),
+        );
+        return;
+      }
+    }
+
+    // 3. Si es una Lección o Página HTML
+    final html = _findHtmlContentInModule(m);
+    if (html != null && html.trim().isNotEmpty) {
+      if (!mounted) return;
+      Nav.goHtmlViewer(context, title: m.name, html: html);
+      return;
+    }
+
+    // 4. Fallback: abrir enlace externo
+    final uri = Uri.tryParse(m.url ?? '');
+    if (uri != null) {
+      final didLaunch = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!didLaunch && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se pudo abrir el enlace externo.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No hay contenido disponible para este módulo.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+    }
+  }
+
+  // ───────────────── VIDEO URL EXTRACTION ─────────────────
+
+  List<String> _extractVideoUrls(String html) {
+    final regex = RegExp(r'(https?:\/\/[^\s"<]+\.mp4)', caseSensitive: false);
+    
+    final matches = regex.allMatches(html);
+    final urls = <String>[];
+    
+    for (final match in matches) {
+      String url = match.group(0)!;
+      
+      // Decodificar la URL
+      try {
+        url = Uri.decodeFull(url);
+      } catch (_) {}
+      
+      // Limpiar la URL - eliminar basura HTML que pueda estar pegada
+      url = _cleanVideoUrl(url);
+      
+      // Solo agregar si la URL parece válida
+      if (url.isNotEmpty && url.contains('.mp4')) {
+        urls.add(url);
+      }
+    }
+    
+    return urls.toSet().toList(); // Eliminar duplicados
+  }
+
+  String _cleanVideoUrl(String url) {
+    // Encontrar la posición del .mp4
+    final mp4Index = url.toLowerCase().indexOf('.mp4');
+    if (mp4Index != -1) {
+      // Cortar en .mp4 + 4 caracteres (incluye .mp4)
+      url = url.substring(0, mp4Index + 4);
+    }
+    
+    // Eliminar cualquier etiqueta HTML o basura que pueda quedar
+    url = url
+        .replaceAll(RegExp(r'</video>'), '')
+        .replaceAll(RegExp(r'&nbsp;'), '')
+        .replaceAll(RegExp(r'<br>'), '')
+        .replaceAll(RegExp(r'<p>'), '')
+        .replaceAll(RegExp(r'</p>'), '')
+        .replaceAll(RegExp(r'\s+'), '') // Eliminar espacios
+        .trim();
+    
+    return url;
+  }
+
+  // ───────────────── HTML CLEANING FOR DISPLAY ─────────────────
+
+  String _cleanHtmlForDisplay(String html) {
+    if (html.isEmpty) return '';
+    
+    // Decodificar URL primero
+    String decoded;
+    try {
+      decoded = Uri.decodeFull(html);
+    } catch (_) {
+      decoded = html;
+    }
+    
+    // Eliminar bloques de video completos con su contenido
+    decoded = decoded.replaceAll(
+      RegExp(r'<video[\s\S]*?</video>', caseSensitive: false),
+      '',
+    );
+    
+    // Eliminar URLs de video sueltas PERO conservar el resto del contenido
+    // Solo eliminar la URL en sí, no el contexto alrededor
+    decoded = decoded.replaceAll(
+      RegExp(r'https?:\/\/[^\s"<]+\.mp4[^\s"<]*', caseSensitive: false),
+      '', // Eliminar solo la URL, no todo el texto
+    );
+    
+    // Eliminar etiquetas HTML problemáticas pero mantener contenido
+    decoded = decoded
+        .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll(RegExp(r'<p>\s*</p>', caseSensitive: false), '')
+        .replaceAll(RegExp(r'<div[^>]*>'), '')
+        .replaceAll('</div>', '')
+        .replaceAll(RegExp(r'<span[^>]*>'), '')
+        .replaceAll('</span>', '');
+    
+    // Eliminar múltiples espacios y saltos de línea
+    decoded = decoded
+        .replaceAll(RegExp(r'\n\s*\n'), '\n\n')
+        .replaceAll(RegExp(r'\s{2,}'), ' ');
+    
+    return decoded.trim();
+  }
+
+  // ───────────────── HTML WITH LATEX ─────────────────
+
+  /// ✅ FASE 4.2: Renderizado mejorado — usa MathText con soporte para
+  /// múltiples formatos (LaTeX, MathML, Moodle spans, $...$, etc.)
+  Widget _buildHtmlWithLatex(String html) {
+    if (html.trim().isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.shadowMd,
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: MathText(
+        html: html,
+        isOption: false,
+      ),
+    );
+  }
+
+  String? _findHtmlContentInModule(CourseModule m) {
+    for (final c in m.contents) {
+      if (c.content != null && c.content!.trim().isNotEmpty) {
+        return _cleanHtmlForDisplay(c.content!);
+      }
+    }
+    return null;
+  }
+}

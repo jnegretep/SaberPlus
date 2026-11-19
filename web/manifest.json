@@ -1,0 +1,37 @@
+{
+    "name": "Saber+ — Preparación ICFES Saber 11",
+    "short_name": "Saber+",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#1E4ED8",
+    "theme_color": "#1E4ED8",
+    "description": "Cursos, simulacros, retos 1v1, gamificación y tutor con IA para prepararte para el ICFES Saber 11.",
+    "orientation": "portrait-primary",
+    "prefer_related_applications": false,
+    "lang": "es",
+    "categories": ["education", "productivity"],
+    "icons": [
+        {
+            "src": "icons/Icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-maskable-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "icons/Icon-maskable-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}
